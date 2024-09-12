@@ -1,0 +1,8 @@
+*.o
+
+# Binaries
+
+# Tests
+
+*_tests.c
+ebml_tests
