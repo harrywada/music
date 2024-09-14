@@ -13,3 +13,13 @@ pos(int fd)
 		abort();
 	return result;
 }
+
+off_t
+seek(int fd, off_t offset)
+{
+	off_t result;
+
+	if ((result = lseek(fd, offset, SEEK_SET)) == (off_t) -1)
+		abort();
+	return result;
+}

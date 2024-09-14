@@ -24,3 +24,25 @@
 #test-signal(6) pos_aborts_on_error
 	int fd = -1;
 	pos(fd);
+
+#tcase seek
+
+#test seek_seeks_to_offset
+	char data[] = "test data";
+	int fd;
+
+	fd = shm_open("test_seek_seeks_to_offset", O_RDWR|O_CREAT, 0600);
+	write(fd, data, sizeof(data));
+
+	ck_assert_int_eq(seek(fd, 0), 0);
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), 0);
+
+	ck_assert_int_eq(seek(fd, 3), 3);
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), 3);
+
+	close(fd);
+	shm_unlink("test_seek_seeks_to_offset");
+
+#test-signal(6) seek_aborts_on_error
+	int fd = -1;
+	seek(fd, 0);
