@@ -8,3 +8,4 @@ _tests.ts_tests.c:
 
 LDFLAGS += -lcheck
 ebml_tests: ebml_tests.c ebml.o
+utils_tests: utils_tests.c utils.o
