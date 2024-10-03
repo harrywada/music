@@ -4,6 +4,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 #include "ebml.h"
 
 #tcase vint_read
@@ -75,3 +76,72 @@ struct {
 	uint32_t id = 0x73c5;
 	struct vint vint_id = { 3, { 1 << 5, 0x73, 0xc5 }};
 	ck_assert(!ebml_id_eq(id, vint_id));
+
+#tcase ebml_descend
+
+#test descend_consumes_input
+	uint8_t head[] = {
+		0x15, 0x49, 0xa9, 0x66, /* ID. */
+		1 << 7 | 1,             /* size. */
+	};
+	uint8_t data[] = {
+		0xff,
+	};
+	off_t end;
+	int fd;
+
+	fd = shm_open("test_descend_consumes_input", O_RDWR|O_CREAT, 0600);
+	write(fd, head, sizeof(head));
+	write(fd, data, sizeof(data));
+	lseek(fd, 0, SEEK_SET);
+
+	end = ebml_descend(fd, 0x1549a966);
+	ck_assert_int_eq(end, sizeof(head) + sizeof(data));
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), sizeof(head));
+
+	close(fd);
+	shm_unlink("test_descend_consumes_input");
+
+#test descend_doesnt_consume_on_unexpected_id
+	uint8_t head[] = {
+		0x15, 0x49, 0xa9, 0x66, /* ID. */
+		1 << 1 | 4,             /* size (too big, shouldn't matter). */
+	};
+	int fd;
+
+	fd = shm_open("test_descend_doesnt_consume_on_unexpected_id", O_RDWR|O_CREAT, 0600);
+	write(fd, head, sizeof(head));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert_int_eq(ebml_descend(fd, 0x15), -1);
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), 0);
+
+	close(fd);
+	shm_unlink("test_descend_doesnt_consume_on_unexpected_id");
+
+#test descend_handles_EBML_ANY_ELEMENT
+	uint8_t head[] = {
+		0x15, 0x49, 0xa9, 0x66, /* ID. */
+		1 << 7 | 1,             /* size. */
+	};
+	uint8_t data[] = {
+		0x0f,
+	};
+	off_t end;
+	int fd;
+
+	fd = shm_open("test_descend_handles_EBML_ANY_ELEMENT", O_RDWR|O_CREAT, 0600);
+	write(fd, head, sizeof(head));
+	write(fd, data, sizeof(data));
+	lseek(fd, 0, SEEK_SET);
+
+	end = ebml_descend(fd, EBML_ANY_ELEMENT);
+	ck_assert_int_eq(end, sizeof(head) + sizeof(data));
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), sizeof(head));
+
+	close(fd);
+	shm_unlink("test_descend_handles_EBML_ANY_ELEMENT");
+
+#test descend_handles_invalid_fd
+	int fd = -1;
+	ck_assert_int_eq(ebml_descend(fd, 15), -1);

@@ -4,6 +4,9 @@
 #include <string.h> /* memcmp(3), memcpy(3). */
 #include <unistd.h> /* read(2). */
 
+#include <sys/types.h>
+#include "utils.h" /* pos, seek. */
+
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #include <stddef.h>
 #include "utils_le.h" /* rev_octets. */
@@ -11,6 +14,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 #include "ebml.h"
 
 int
@@ -76,4 +80,24 @@ ebml_id_eq(uint32_t id, struct vint vint_id)
 #endif
 
 	return memcmp(&id, vint_id.data, vint_id.size) == 0;
+}
+
+off_t
+ebml_descend(int fd, uint32_t expected_id)
+{
+	struct vint id, len;
+	off_t begin;
+
+	if (fd < 0)
+		return -1;
+
+	begin = pos(fd);
+	if (!vint_read(fd, &id)
+	||  (expected_id != EBML_ANY_ELEMENT && !ebml_id_eq(expected_id, id))
+	||  !vint_read(fd, &len)) {
+		seek(fd, begin);
+		return -1;
+	}
+
+	return pos(fd) + vint_value(len);
 }
