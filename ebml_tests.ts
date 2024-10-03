@@ -41,3 +41,13 @@ struct {
 	struct vint vint;
 	int fd = -1;
 	ck_assert(!vint_read(fd, &vint));
+
+#tcase vint_value
+
+#test vint_value_returns_correct_value
+	struct vint vint = { 1, { 1 << 7 | 5 }};
+	ck_assert_int_eq(vint_value(vint), 5);
+
+#test-signal(6) vint_value_aborts_on_too_big
+	struct vint vint = { sizeof(long) + 1, { 0 }};
+	vint_value(vint);

@@ -6,3 +6,4 @@ struct vint {
 };
 
 int vint_read(int fd, struct vint *);
+long vint_value(struct vint);

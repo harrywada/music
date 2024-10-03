@@ -1,6 +1,13 @@
 #include <errno.h> /* errno(3). */
 #include <stddef.h> /* uint8_t(3type). */
+#include <stdlib.h> /* abort(3). */
+#include <string.h> /* memcpy(3). */
 #include <unistd.h> /* read(2). */
+
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#include <stddef.h>
+#include "utils_le.h" /* rev_octets. */
+#endif
 
 #include <stddef.h>
 #include <stdint.h>
@@ -26,4 +33,26 @@ vint_read(int fd, struct vint *vint)
 	} while (!(vint->data[(vint->size - 1) / 8] & marker));
 
 	return 1;
+}
+
+long
+vint_value(struct vint vint)
+{
+	long result = 0;
+	uint8_t mask;
+	unsigned int i;
+
+	if (vint.size > sizeof(result))
+		abort();
+
+	memcpy(&result, vint.data, vint.size);
+#if __BYTE_ORDER__ == __LITTLE_ENDIAN__
+	rev_octets(&result, vint.size);
+#endif
+	mask = ~(1 << (7 - (vint.size - 1) % 8));
+	for (i = 0; i < vint.size; i += 1)
+		if (i == (vint.size - 1) / 8)
+			((uint8_t *) &result)[i] &= mask;
+
+	return result;
 }
