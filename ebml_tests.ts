@@ -51,3 +51,27 @@ struct {
 #test-signal(6) vint_value_aborts_on_too_big
 	struct vint vint = { sizeof(long) + 1, { 0 }};
 	vint_value(vint);
+
+#tcase ebml_id_eq
+
+#test ebml_id_eq_returns_true_on_match
+	uint32_t id = 0x18538067;
+	struct vint vint_id = { 4, { 0x18, 0x53, 0x80, 0x67 }};
+	ck_assert(ebml_id_eq(id, vint_id));
+
+#test ebml_id_eq_returns_false_on_different
+	uint32_t id = 0x18538067;
+	struct vint vint_id = { 4, { 0x18, 0x53, 0x81, 0x67 }};
+	ck_assert(!ebml_id_eq(id, vint_id));
+
+#test ebml_id_eq_returns_false_on_zero
+	uint32_t id = 0;
+	struct vint vint_id1 = { 4, { 0x18, 0x53, 0x81, 0x67 }},
+	            vint_id2 = { 1, { 1 << 7 }};
+	ck_assert(!ebml_id_eq(id, vint_id1));
+	ck_assert(!ebml_id_eq(id, vint_id2));
+
+#test ebml_id_eq_returns_false_on_different_size
+	uint32_t id = 0x73c5;
+	struct vint vint_id = { 3, { 1 << 5, 0x73, 0xc5 }};
+	ck_assert(!ebml_id_eq(id, vint_id));

@@ -7,6 +7,6 @@ _tests.ts_tests.c:
 	checkmk $< >$@
 
 LDFLAGS += -lcheck
-ebml_tests: ebml_tests.c ebml.o
+ebml_tests: ebml_tests.c ebml.o utils_le.o
 utils_tests: utils_tests.c utils.o
 utils_le_tests: utils_le_tests.c utils_le.o

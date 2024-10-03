@@ -1,7 +1,7 @@
 #include <errno.h> /* errno(3). */
 #include <stddef.h> /* uint8_t(3type). */
 #include <stdlib.h> /* abort(3). */
-#include <string.h> /* memcpy(3). */
+#include <string.h> /* memcmp(3), memcpy(3). */
 #include <unistd.h> /* read(2). */
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -55,4 +55,25 @@ vint_value(struct vint vint)
 			((uint8_t *) &result)[i] &= mask;
 
 	return result;
+}
+
+int
+ebml_id_eq(uint32_t id, struct vint vint_id)
+{
+	unsigned int markpos;
+
+	for (markpos = 0; markpos < 32; markpos += 1)
+		if (id & (1 << (31 - markpos))) break;
+	markpos %= 8; /* EBML IDs are guaranteed to be minimally sized. */
+
+	if (markpos >= 32 || markpos + 1 != vint_id.size)
+		return 0;
+
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+	rev_octets(&id, vint_id.size);
+#elif __BYTE_ORDER__ != __ORDER_BIG_ENDIAN__
+	abort();
+#endif
+
+	return memcmp(&id, vint_id.data, vint_id.size) == 0;
 }
