@@ -145,3 +145,72 @@ struct {
 #test descend_handles_invalid_fd
 	int fd = -1;
 	ck_assert_int_eq(ebml_descend(fd, 15), -1);
+
+#tcase ebml_skip
+
+#test skip_consumes_input
+	uint8_t head[] = {
+		0x73, 0x73, /* ID. */
+		1 << 7 | 3, /* size. */
+	};
+	uint8_t data[] = {
+		0xff, 0xff, 0xa9,
+	};
+	off_t end;
+	int fd;
+
+	fd = shm_open("test_skip_consumes_input", O_RDWR|O_CREAT, 0600);
+	write(fd, head, sizeof(head));
+	write(fd, data, sizeof(data));
+	lseek(fd, 0, SEEK_SET);
+
+	end = ebml_skip(fd, 0x7373);
+	ck_assert_int_eq(end, sizeof(head) + sizeof(data));
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), sizeof(head) + sizeof(data));
+
+	close(fd);
+	shm_unlink("test_skip_consumes_input");
+
+#test skip_doesnt_consume_on_unexpected_id
+	uint8_t head[] = {
+		0x73, 0x73, /* ID. */
+		1 << 1 | 1, /* size (too big, shouldn't matter). */
+	};
+	int fd;
+
+	fd = shm_open("test_skip_doesnt_consume_on_unexpected_id", O_RDWR|O_CREAT, 0600);
+	write(fd, head, sizeof(head));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert_int_eq(ebml_skip(fd, 0x15), -1);
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), 0);
+
+	close(fd);
+	shm_unlink("test_skip_doesnt_consume_on_unexpected_id");
+
+#test skip_handles_EBML_ANY_ELEMENT
+	uint8_t head[] = {
+		0x73, 0x73, /* ID. */
+		1 << 7 | 3, /* size. */
+	};
+	uint8_t data[] = {
+		0xff, 0xff, 0xa9,
+	};
+	off_t end;
+	int fd;
+
+	fd = shm_open("test_skip_handles_EBML_ANY_ELEMENT", O_RDWR|O_CREAT, 0600);
+	write(fd, head, sizeof(head));
+	write(fd, data, sizeof(data));
+	lseek(fd, 0, SEEK_SET);
+
+	end = ebml_skip(fd, EBML_ANY_ELEMENT);
+	ck_assert_int_eq(end, sizeof(head) + sizeof(data));
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), sizeof(head) + sizeof(data));
+
+	close(fd);
+	shm_unlink("test_skip_handles_EBML_ANY_ELEMENT");
+
+#test skip_handles_invalid_fd
+	int fd = -1;
+	ck_assert_int_eq(ebml_skip(fd, 24), -1);

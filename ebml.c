@@ -101,3 +101,23 @@ ebml_descend(int fd, uint32_t expected_id)
 
 	return pos(fd) + vint_value(len);
 }
+
+off_t
+ebml_skip(int fd, uint32_t expected_id)
+{
+	struct vint id, len;
+	off_t begin;
+
+	if (fd < 0)
+		return -1;
+
+	begin = pos(fd);
+	if (!vint_read(fd, &id)
+	||  (expected_id != EBML_ANY_ELEMENT && !ebml_id_eq(expected_id, id))
+	||  !vint_read(fd, &len)) {
+		seek(fd, begin);
+		return -1;
+	}
+
+	return seek(fd, pos(fd) + vint_value(len));
+}
