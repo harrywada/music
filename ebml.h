@@ -13,4 +13,5 @@ long vint_value(struct vint);
 int ebml_id_eq(uint32_t, struct vint); /* Assume IDs are at most four bytes. */
 
 off_t ebml_descend(int, uint32_t); /* Assume IDs are at most four bytes. */
+uint32_t ebml_peek(int); /* Assume IDs are at most four bytes. */
 off_t ebml_skip(int, uint32_t); /* Assume IDs are at most four bytes. */

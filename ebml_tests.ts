@@ -146,6 +146,40 @@ struct {
 	int fd = -1;
 	ck_assert_int_eq(ebml_descend(fd, 15), -1);
 
+#tcase ebml_peek
+
+#test peek_returns_id
+	uint8_t ebml_id[] = { 0x53, 0x78 };
+	int fd;
+
+	fd = shm_open("test_peek_returns_id", O_RDWR|O_CREAT, 0600);
+	write(fd, ebml_id, sizeof(ebml_id));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert_int_eq(ebml_peek(fd), 0x5378);
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), 0);
+
+	close(fd);
+	shm_unlink("test_peek_returns_id");
+
+#test peek_handles_overflow_id
+	uint8_t ebml_id[] = { 0x08, 0xe1, 0x24, 0xd5, 0x69 };
+	int fd;
+
+	fd = shm_open("test_peek_handles_overflow_id", O_RDWR|O_CREAT, 0600);
+	write(fd, ebml_id, sizeof(ebml_id));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert_int_eq(ebml_peek(fd), EBML_ANY_ELEMENT);
+	ck_assert_int_eq(lseek(fd, 0, SEEK_SET), 0);
+
+	close(fd);
+	shm_unlink("test_peek_handles_overflow_id");
+
+#test peek_handles_invalid_fd
+	int fd = -1;
+	ck_assert_int_eq(ebml_peek(fd), EBML_ANY_ELEMENT);
+
 #tcase ebml_skip
 
 #test skip_consumes_input

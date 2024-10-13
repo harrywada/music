@@ -102,6 +102,32 @@ ebml_descend(int fd, uint32_t expected_id)
 	return pos(fd) + vint_value(len);
 }
 
+uint32_t
+ebml_peek(int fd)
+{
+	struct vint id;
+	uint32_t result = EBML_ANY_ELEMENT;
+	off_t begin;
+
+	if (fd < 0)
+		return EBML_ANY_ELEMENT;
+
+	begin = pos(fd);
+	if (!vint_read(fd, &id) || id.size > sizeof(result))
+		goto end;
+
+	result = 0; /* In case `id.size` is less than `sizeof(result)`. */
+	memcpy(&result, id.data, id.size);
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+	rev_octets(&result, id.size);
+#elif __BYTE_ORDER__ != __ORDER_BIG_ENDIAN__
+	abort();
+#endif
+end:
+	seek(fd, begin);
+	return result;
+}
+
 off_t
 ebml_skip(int fd, uint32_t expected_id)
 {
