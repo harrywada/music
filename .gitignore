@@ -1,9 +1,9 @@
 *.o
 
 # Binaries
+play
 
 # Tests
-
 *_tests.c
 ebml_tests
 utils_tests

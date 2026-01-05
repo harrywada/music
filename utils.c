@@ -1,8 +1,26 @@
-#include <stdlib.h> /* abort(3). */
+#include <stdarg.h> /* va_list(3type), va_start(3). */
+#include <stdio.h> /* printf(3). */
+#include <stdlib.h> /* abort(3), exit(3). */
+#include <string.h> /* strerror(3). */
 #include <unistd.h> /* lseek(2), off_t(3type). */
 
 #include <sys/types.h>
 #include "utils.h"
+
+void
+error(int stat, int err, char *msg, ...)
+{
+	va_list args;
+
+	va_start(args, msg);
+	vfprintf(stderr, msg, args);
+
+	if (err)
+		fprintf(stderr, ": %s", strerror(err));
+	fprintf(stderr, "\n");
+
+	if (stat) exit(stat);
+}
 
 off_t
 pos(int fd)
