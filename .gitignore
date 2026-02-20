@@ -4,7 +4,5 @@
 play
 
 # Tests
+*_tests
 *_tests.c
-ebml_tests
-utils_tests
-utils_le_tests

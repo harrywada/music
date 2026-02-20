@@ -2,9 +2,10 @@
 TRACKS_MAX = 4
 VINT_OCTET_MAX = 8
 
-CFLAGS += -Wall -Wextra -Werror -Wno-empty-body \
-	  -isystem /usr/include/alsa/ \
-	  -DTRACKS_MAX="$(TRACKS_MAX)" \
+CFLAGS += -std=c23 -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200112L \
+          -Wall -Wextra -Werror -Wno-empty-body \
+          -isystem /usr/include/alsa/ \
+          -DTRACKS_MAX="$(TRACKS_MAX)" \
           -DVINT_OCTET_MAX="$(VINT_OCTET_MAX)"
 
 LDFLAGS += -lasound
@@ -18,6 +19,8 @@ _tests.ts_tests.c:
 LDFLAGS += -lcheck
 ebml_tests: ebml_tests.c ebml.o utils.o utils_le.o
 matroska_tests: matroska_tests.c matroska.o
+queue_tests: queue_tests.c queue.o song.o
+song_tests: song_tests.c song.o utils.o
 utils_tests: utils_tests.c utils.o
 utils_le_tests: utils_le_tests.c utils_le.o
 

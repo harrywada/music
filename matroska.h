@@ -112,9 +112,15 @@ struct mkv_chapter {
 	uint64_t track_uids[TRACKS_MAX]; /* If all 0, all tracks apply. */
 };
 
+[[gnu::fd_arg_read(1)]]
 int mkv_readseekinfo(int, struct mkv_seekinfo *);
+[[gnu::fd_arg_read(1)]]
 int mkv_readinfo(int, struct mkv_info *);
+[[gnu::fd_arg_read(1)]]
 int mkv_readtrackentry(int, struct mkv_track *);
+[[gnu::fd_arg_read(1)]]
 int mkv_readcuepoint(int, struct mkv_cue *);
+[[gnu::fd_arg_read(1)]]
 int mkv_readblock(int, struct mkv_block *); /* Only reads header; data remains. */
+[[gnu::fd_arg_read(1)]]
 int mkv_readchapteratom(int, struct mkv_chapter *);

@@ -1,3 +1,4 @@
+#include <alloca.h> /* snd_pcm_hw_params_alloca. */
 #include <errno.h> /* errno(3). */
 #include <fcntl.h> /* open(2). */
 #include <poll.h> /* poll(2). */
@@ -9,8 +10,7 @@
 
 #include <alsa/asoundlib.h>
 
-#include <sys/types.h>
-#include "utils.h" /* pos, seek. */
+#include "utils.h"
 
 #include <stddef.h>
 #include "utils_le.h" /* rev_octets. */
@@ -28,7 +28,7 @@
 /* Short helper functions to reduce a bit of redundancy. */
 #define SND(cmp, exit, fn, ...) \
 	if (!((err = snd_ ## fn (__VA_ARGS__)) cmp)) \
-		error(exit, 0, "snd_" #fn ": %s", snd_strerror(err)); \
+		die(0, "snd_" #fn ": %s", snd_strerror(err)); \
 	if (!(err cmp)) /* Requires -Wno-empty-body. */
 #define SND_ERR(cmp, fn, ...) SND(cmp, EXIT_FAILURE, fn, __VA_ARGS__)
 #define SND_WARN(cmp, fn, ...) SND(cmp, 0, fn, __VA_ARGS__)
@@ -37,16 +37,13 @@ enum fds {
 	FD_SRC = 0,
 	FD_PCM,
 	FD_SIG,
-#ifdef MPRIS
-	/* TODO. */
-#endif
 	FD_END,
 };
 
 /* Convenient wrapper for accessing `snd_pcm_channel_area_t`s. */
 struct buf {
-	void *addr;
 	size_t n, size;
+	void *addr;
 };
 
 /* Audio configuration. */
@@ -57,7 +54,7 @@ struct cfg {
 	off_t start;
 };
 
-/* For leftover audio frames from reading a cluster into the Alsa buffer. */
+/* Info to read any remaining audio frames. */
 struct leftover {
 	struct mkv_cluster clust;
 	size_t rem;
@@ -69,29 +66,60 @@ struct state {
 	struct leftover lo;
 	struct cfg cfg;
 	struct pollfd fds[FD_END];
-	int run;
+	bool run;
 };
 
 static int err = 0;
 
 /* Get the head address of the buffer. */
+[[gnu::const]]
 static void *head(struct buf);
 /* Get the remaining space in the buffer. */
+[[gnu::const]]
 static size_t rem(struct buf);
 
 /* Reads data from the file descriptor into a buffer. */
+[[gnu::fd_arg_read(1)]]
 static ssize_t fill_data(int, struct state *, struct buf *);
 
-/* Extracts necessary configuration data from Matroska data. */
-static int read_cfg(int, struct cfg *, unsigned long);
-static int find_chapter(int, unsigned long, struct mkv_chapter *);
-static int find_track(int, uint64_t [static TRACKS_MAX], struct mkv_track *);
-static int find_cue(int, uint64_t, uint64_t, unsigned int, off_t *);
+/* Configuration parsing functions. */
 
-/* Handle file descriptor events. */
-static int handle_alsa(struct state *);
-static int handle_sigs(struct state *);
-static int handle_src(struct state *);
+/* Extracts necessary configuration data from Matroska data. */
+[[gnu::cold, gnu::fd_arg_read(1)]]
+static bool read_cfg(int, struct cfg *, unsigned long);
+
+/* Finds a chapter with a given UID. */
+[[gnu::cold, gnu::fd_arg_read(1)]]
+static bool find_chapter(int, unsigned long, struct mkv_chapter *);
+
+/* Finds a track with ... TODO should only be one track; filter out non-audio ones beforehand. */
+[[gnu::cold, gnu::fd_arg_read(1)]]
+static bool find_track(int, uint64_t [static TRACKS_MAX], struct mkv_track *);
+
+/* From the start time, use cues to find the position of the first chapter. */
+[[gnu::cold, gnu::fd_arg_read(1)]]
+static bool find_cue(int, uint64_t, uint64_t, unsigned int, off_t *);
+
+/* Event handling functions. */
+
+static bool handle_alsa(struct state *);
+static bool handle_sigs(struct state *);
+static bool handle_src(struct state *);
+
+/* Cleanup functions (used with [[cleanup(...)]]). */
+
+[[gnu::unused]]
+void cleanup_pollfds(struct pollfd (*)[FD_END]);
+
+[[gnu::unused]]
+void cleanup_pcm(snd_pcm_t **);
+
+void
+cleanup_pollfds(struct pollfd (*fds)[FD_END])
+{
+	for (int i = 0; i < FD_END; i += 1)
+		close(abs((*fds)[i].fd)), errno = 0;
+}
 
 static ssize_t
 fill_data(int fd, struct state *s, struct buf *buf)
@@ -102,7 +130,7 @@ fill_data(int fd, struct state *s, struct buf *buf)
 	if (s->lo.rem) {
 		const size_t avail = MIN(rem(*buf), s->lo.rem);
 		if (read(fd, head(*buf), avail) != (ssize_t) avail) {
-			error(0, errno, "read");
+			debug(errno, "read");
 			goto err;
 		}
 		buf->n += avail;
@@ -126,7 +154,7 @@ fill_data(int fd, struct state *s, struct buf *buf)
 		break;
 
 	case MKV_SIMPLEBLOCK:
-		/* Fallthrough. */
+		[[fallthrough]];
 	case MKV_BLOCK:
 		struct mkv_block b;
 
@@ -157,7 +185,7 @@ fill_data(int fd, struct state *s, struct buf *buf)
 
 		const size_t avail = MIN(rem(*buf), b.frames_sz);
 		if (read(fd, head(*buf), avail) != (ssize_t) avail) {
-			error(0, errno, "read");
+			debug(errno, "read");
 			goto err;
 		}
 		buf->n += avail;
@@ -165,7 +193,7 @@ fill_data(int fd, struct state *s, struct buf *buf)
 		break;
 
 	case EBML_ANY_ELEMENT:
-		/* Fallthrough. */
+		[[fallthrough]];
 	default:
 		goto end;
 	}
@@ -177,7 +205,7 @@ err:
 	return -1;
 }
 
-static int
+static bool
 handle_alsa(struct state *s)
 {
 	const snd_pcm_channel_area_t *areas;
@@ -191,16 +219,16 @@ handle_alsa(struct state *s)
 	/* Convert revents. */
 
 	SND_WARN(== 0, pcm_poll_descriptors_revents, s->pcm, &s->fds[FD_PCM], 1, &revents) {
-		return 1;
+		return false;
 	}
 
 	/* Early return conditions. */
 
 	if (revents & ~POLLOUT) {
-		error(0, 0, "PCM descriptor errored");
-		return 0;
+		debug(0, "PCM descriptor errored");
+		return false;
 	} else if (!(revents & POLLOUT)) {
-		return 1;
+		return true;
 	}
 
 	/* Check if audio data is ready. */
@@ -209,12 +237,12 @@ handle_alsa(struct state *s)
 		s->fds[FD_SRC].fd = abs(s->fds[FD_SRC].fd);
 		switch (poll(&s->fds[FD_SRC], 1, 0)) {
 		case -1:
-			error(0, errno, "poll");
-			/* Fallthrough. */
+			debug(errno, "poll");
+			[[fallthrough]];
 		case  0:
 			/* Wait for source. */
 			s->fds[FD_PCM].fd = -1 * abs(s->fds[FD_PCM].fd);
-			return 1;
+			return true;
 		default:
 			s->fds[FD_SRC].fd = -1 * abs(s->fds[FD_SRC].fd);
 			break;
@@ -222,21 +250,21 @@ handle_alsa(struct state *s)
 	}
 
 	if (s->fds[FD_SRC].revents & ~POLLIN) {
-		error(0, 0, "Audio file descriptor errored");
-		return 0;
+		debug(0, "Audio file descriptor errored");
+		return false;
 	} else if (!(s->fds[FD_SRC].revents & POLLIN)) {
-		return 1;
+		return true;
 	}
 
 	/* Request memory-mapped frames. */
 
 	SND_WARN(>= 0, pcm_avail_update, s->pcm) {
-		return 1;
+		return true;
 	}
 	avail = err;
 
 	SND_WARN(== 0, pcm_mmap_begin, s->pcm, &areas, &off, &avail) {
-		return 1;
+		return true;
 	}
 
 	buf.size = snd_pcm_frames_to_bytes(s->pcm, avail);
@@ -247,7 +275,7 @@ handle_alsa(struct state *s)
 	/* Read data. */
 
 	if (fill_data(abs(s->fds[FD_SRC].fd), s, &buf) == -1) {
-		error(0, 0, "Can't read audio data");
+		debug(0, "Can't read audio data");
 	}
 
 	/* Commit data. */
@@ -255,7 +283,7 @@ handle_alsa(struct state *s)
 	/* TODO Maybe avoid state, use `snd_pcm_mmap_commit_partial` instead? */
 	res = snd_pcm_mmap_commit(s->pcm, off, snd_pcm_bytes_to_frames(s->pcm, buf.n));
 	if (res != snd_pcm_bytes_to_frames(s->pcm, buf.n))
-		error(EXIT_FAILURE, 0, "snd_pcm_mmap_commit: %s", snd_strerror(res));
+		die(0, "snd_pcm_mmap_commit: %s", snd_strerror(res));
 
 	/* Autoplay doesn't work with mmap, for some reason.
 	   https://github.com/alsa-project/alsa-lib/commit/bd53892 */
@@ -263,10 +291,10 @@ handle_alsa(struct state *s)
 		SND_WARN(== 0, pcm_start, s->pcm);
 	}
 	
-	return 1;
+	return true;
 }
 
-static int
+static bool
 handle_sigs(struct state *s)
 {
 	struct signalfd_siginfo siginfo;
@@ -274,17 +302,17 @@ handle_sigs(struct state *s)
 	/* Early return conditions. */
 
 	if (s->fds[FD_SIG].revents & ~POLLIN) {
-		error(0, 0, "Signal descriptor errored");
-		return 0;
+		debug(0, "Signal descriptor errored");
+		return false;
 	} else if (!(s->fds[FD_SIG].revents & POLLIN)) {
-		return 1;
+		return true;
 	}
 
 	/* Read signal info. */
 
 	if (read(s->fds[FD_SIG].fd, &siginfo, sizeof siginfo) != sizeof siginfo) {
-		error(0, errno, "read");
-		return 1;
+		debug(errno, "read");
+		return true;
 	}
 
 	/* Handle signals. */
@@ -293,7 +321,7 @@ handle_sigs(struct state *s)
 	case SIGHUP:
 		s->run = 0;
 		SND_WARN(== 0, pcm_drop, s->pcm);
-		return 0;
+		return false;
 	case SIGUSR1:
 		SND_WARN(== 0, pcm_pause, s->pcm, 0);
 		break;
@@ -301,14 +329,14 @@ handle_sigs(struct state *s)
 		SND_WARN(== 0, pcm_pause, s->pcm, 1);
 		break;
 	default:
-		error(0, 0, "Invalid signal %d", siginfo.ssi_signo);
-		return 0;
+		debug(0, "Invalid signal %d", siginfo.ssi_signo);
+		return false;
 	}
 
-	return 1;
+	return true;
 }
 
-static int
+static bool
 handle_src(struct state *s)
 {
 	if (s->fds[FD_SRC].fd > 0 && s->fds[FD_SRC].revents & POLLIN) {
@@ -317,7 +345,7 @@ handle_src(struct state *s)
 		memset(&s->fds[FD_PCM].revents, 0, sizeof s->fds[FD_PCM].revents);
 	}
 
-	return 1;
+	return true;
 }
 
 static void *
@@ -326,7 +354,7 @@ head(struct buf buf)
 	return buf.addr + buf.n;
 }
 
-static int
+static bool
 read_cfg(int fd, struct cfg *cfg, unsigned long id)
 {
 	struct mkv_seekinfo si;
@@ -338,34 +366,34 @@ read_cfg(int fd, struct cfg *cfg, unsigned long id)
 	memset(cfg, 0, sizeof *cfg);
 
 	if (ebml_skip(fd, EBML_HEADER) == -1) {
-		return 0;
+		return false;
 	}
 	if (ebml_descend(fd, MKV_SEGMENT) == -1) {
-		return 0;
+		return false;
 	}
 
 	if (!mkv_readseekinfo(fd, &si)) {
-		return 0;
+		return false;
 	}
 
 	seek(fd, si.segment + si.info);
 	if (!mkv_readinfo(fd, &info)) {
-		return 0;
+		return false;
 	}
 
 	seek(fd, si.segment + si.chapters);
 	if (!find_chapter(fd, id, &chapter)) {
-		return 0;
+		return false;
 	}
 
 	seek(fd, si.segment + si.tracks);
 	if (!find_track(fd, chapter.track_uids, &track)) {
-		return 0;
+		return false;
 	}
 
 	seek(fd, si.segment + si.cues);
 	if (!find_cue(fd, chapter.start, info.ts_scale, track.num, &start_pos)) {
-		return 0;
+		return false;
 	}
 
 	cfg->ts_scale = info.ts_scale;
@@ -377,79 +405,75 @@ read_cfg(int fd, struct cfg *cfg, unsigned long id)
 	cfg->rate = track.rate;
 	cfg->start = si.segment + start_pos;
 
-	return 1;
+	return true;
 }
 
-static int
+static bool
 find_chapter(int fd, unsigned long id, struct mkv_chapter *c)
 {
 	if (ebml_descend(fd, MKV_CHAPTERS) == -1) {
-		return 0;
+		return false;
 	}
 
 	for (;;) { /* Find relevant chapter. */
 		off_t end;
 
 		if ((end = ebml_descend(fd, MKV_EDITIONENTRY)) == -1)
-			return 0;
+			return false;
 		while (pos(fd) < end) {
 			if (ebml_peek(fd) != MKV_CHAPTERATOM) {
 				ebml_skip(fd, EBML_ANY_ELEMENT);
 				continue;
 			}
 			if (!mkv_readchapteratom(fd, c))
-				return 0; /* Should never happen. */
+				return false; /* Should never happen. */
 			if (c->uid == id)
-				return 1;
+				return true;
 		}
 	}
 }
 
-static int
+static bool
 find_track(int fd, uint64_t uids[static TRACKS_MAX], struct mkv_track *t)
 {
 	if (ebml_descend(fd, MKV_TRACKS) == -1)
-		return 0;
+		return false;
 	for (;;) { /* Find relevant track. */
-		int i;
-
 		if (!mkv_readtrackentry(fd, t))
-			return 0;
+			return false;
 		if (!t->enabled || t->type != AUDIO)
 			continue;
-		for (i = 0; i < TRACKS_MAX; i += 1) {
+		for (int i = 0; i < TRACKS_MAX; i += 1) {
 			if (t->uid == uids[i])
-				return 1;
+				return true;
 		}
 	}
 }
 
-static int
+static bool
 find_cue(int fd, uint64_t start, uint64_t scale, unsigned int track, off_t *pos)
 {
 	struct mkv_cue cue1, cue2;
 
 	if (ebml_descend(fd, MKV_CUES) == -1)
-		return 0;
+		return false;
 
 	while (mkv_readcuepoint(fd, &cue2)) {
-		int i;
-
 		if (cue2.time * scale <= start) {
 			cue1 = cue2;
 			continue;
 		}
 
-		for (i = 0; i < TRACKS_MAX; i += 1) {
+		for (int i = 0; i < TRACKS_MAX; i += 1) {
 			if (cue1.tracks[i].num == track) {
 				/* XXX Ignore relative position. */
 				*pos = cue1.tracks[i].pos;
-				return 1;
+				return true;
 			}
 		}
 	}
 
-	return 0;
+	return false;
 }
 
 static size_t
@@ -477,9 +501,9 @@ main(int argc, char *argv[])
 		sigaddset(&sigmask, SIGHUP);
 
 		if (sigprocmask(SIG_BLOCK, &sigmask, NULL) == -1)
-			error(EXIT_FAILURE, errno, "sigprocmask");
+			die(errno, "sigprocmask");
 		if ((state.fds[FD_SIG].fd = signalfd(-1, &sigmask, 0)) == -1)
-			error(EXIT_FAILURE, errno, "signalfd");
+			die(errno, "signalfd");
 		state.fds[FD_SIG].events = POLLIN;
 	}
 
@@ -487,24 +511,24 @@ main(int argc, char *argv[])
 		char *end;
 
 		if (argc != 3)
-			error(EXIT_FAILURE, 0, "Usage: %s path chapter_id", argv[0]);
+			die(0, "Usage: %s path chapter_id", argv[0]);
 
 		path = argv[1];
 		if (strlen(path) < 1)
-			error(EXIT_FAILURE, 0, "Non-zero path length");
+			die(0, "Non-zero path length");
 
 		chapt_id = strtoul(argv[2], &end, 10);
 		if (end != argv[2] + strlen(argv[2]))
-			error(EXIT_FAILURE, 0, "Invalid chapter ID");
+			die(0, "Invalid chapter ID");
 	}
 
 	{ /* Get relevant audio metadata. */
 		if ((state.fds[FD_SRC].fd = open(path, O_RDONLY)) == -1)
-			error(EXIT_FAILURE, errno, "Can'track open %s", path);
+			die(errno, "Can'track open %s", path);
 		state.fds[FD_SRC].events = POLLIN;
 
 		if (!read_cfg(state.fds[FD_SRC].fd, &state.cfg, chapt_id))
-			error(EXIT_FAILURE, 0, "Can't get audio config from %s", path);
+			die(0, "Can't get audio config from %s", path);
 
 		seek(state.fds[FD_SRC].fd, state.cfg.start);
 
@@ -535,7 +559,7 @@ main(int argc, char *argv[])
 			format = SND_PCM_FORMAT_S16;
 			break;
 		default:
-			error(EXIT_FAILURE, 0, "Unrecognized BPS %d", state.cfg.bps);
+			die(0, "Unrecognized BPS %d", state.cfg.bps);
 			break;
 		}
 
@@ -571,11 +595,11 @@ main(int argc, char *argv[])
 	SND_WARN(== 0, pcm_drain, state.pcm);
 
 	if (close(abs(state.fds[FD_SRC].fd)) == -1)
-		error(0, errno, "Can'track close %s", path);
+		debug(errno, "Can'track close %s", path);
 	if (close(abs(state.fds[FD_PCM].fd)) == -1)
-		error(0, errno, "Can'track close Alsa PCM");
+		debug(errno, "Can'track close Alsa PCM");
 	if (close(abs(state.fds[FD_SIG].fd)) == -1)
-		error(0, errno, "Can'track close signal descriptor");
+		debug(errno, "Can'track close signal descriptor");
 
 	exit(readyfd_n == -1 ? EXIT_FAILURE : EXIT_SUCCESS);
 }
