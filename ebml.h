@@ -15,7 +15,6 @@ struct vint {
 
 [[gnu::fd_arg_read(1)]]
 int vint_read(int fd, struct vint *);
-[[gnu::const]]
 unsigned long vint_value(struct vint);
 
 [[gnu::const]]
