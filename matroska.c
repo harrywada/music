@@ -32,10 +32,13 @@ mkv_readseekinfo(int fd, struct mkv_seekinfo *sk_info)
 		ebml_descend(fd, MKV_SEEK);
 
 		for (i = 0; i < 2; i += 1) switch (ebml_peek(fd)) { /* XXX Can there be redundant (3+) elements? */
-		case MKV_SEEKID:
-			if (!ebml_readbinary(fd, MKV_SEEKID, &sk_id, sizeof sk_id))
+		case MKV_SEEKID: {
+			uint64_t tmp;
+			if (!ebml_readuint(fd, MKV_SEEKID, &tmp))
 				goto err;
+			sk_id = (uint_least32_t) tmp;
 			break;
+		}
 		case MKV_SEEKPOSITION:
 			if (!ebml_readuint(fd, MKV_SEEKPOSITION, (uint64_t *) &sk_pos))
 				goto err;
