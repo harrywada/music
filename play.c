@@ -63,12 +63,12 @@ struct playback {
 };
 
 struct state {
-	snd_pcm_t      *pcm;
-	int             src;
+	snd_pcm_t *pcm;
+	int src;
 	struct playback play;
-	struct cfg      cfg;
-	struct pollfd   fds[FD_END];
-	bool            run;
+	struct cfg cfg;
+	struct pollfd fds[FD_END];
+	bool run;
 };
 
 static int err = 0;
@@ -89,11 +89,11 @@ static ssize_t next_frame(int, struct playback *, const struct cfg *);
 
 /* Extracts necessary configuration data from Matroska data. */
 [[gnu::cold, gnu::fd_arg_read(1)]]
-static bool read_cfg(int, struct cfg *, unsigned long);
+static bool read_cfg(int, struct cfg *, uint64_t);
 
 /* Finds a chapter with a given UID. */
 [[gnu::cold, gnu::fd_arg_read(1)]]
-static bool find_chapter(int, unsigned long, struct mkv_chapter *);
+static bool find_chapter(int, uint64_t, struct mkv_chapter *);
 
 /* Finds a track with ... TODO should only be one track; filter out non-audio ones beforehand. */
 [[gnu::cold, gnu::fd_arg_read(1)]]
@@ -309,7 +309,7 @@ head(struct buf buf)
 }
 
 static bool
-read_cfg(int fd, struct cfg *cfg, unsigned long id)
+read_cfg(int fd, struct cfg *cfg, uint64_t id)
 {
 	struct mkv_seekinfo si;
 	struct mkv_info info;
@@ -363,7 +363,7 @@ read_cfg(int fd, struct cfg *cfg, unsigned long id)
 }
 
 static bool
-find_chapter(int fd, unsigned long id, struct mkv_chapter *c)
+find_chapter(int fd, uint64_t id, struct mkv_chapter *c)
 {
 	if (ebml_descend(fd, MKV_CHAPTERS) == -1) {
 		return false;
@@ -407,23 +407,27 @@ find_track(int fd, uint64_t uids[static TRACKS_MAX], struct mkv_track *t)
 static bool
 find_cue(int fd, uint64_t start, uint64_t scale, unsigned int track, off_t *pos)
 {
-	struct mkv_cue cue1, cue2;
+	struct mkv_cue cue = {0}, next;
+	bool found = false;
 
 	if (ebml_descend(fd, MKV_CUES) == -1)
 		return false;
 
-	while (mkv_readcuepoint(fd, &cue2)) {
-		if (cue2.time * scale <= start) {
-			cue1 = cue2;
-			continue;
-		}
+	while (mkv_readcuepoint(fd, &next)) {
+		if (next.time * scale > start)
+			break;
+		cue = next;
+		found = true;
+	}
 
-		for (int i = 0; i < TRACKS_MAX; i += 1) {
-			if (cue1.tracks[i].num == track) {
-				/* XXX Ignore relative position. */
-				*pos = cue1.tracks[i].pos;
-				return true;
-			}
+	if (!found)
+		return false;
+
+	for (int i = 0; i < TRACKS_MAX; i += 1) {
+		if (cue.tracks[i].num == track) {
+			/* XXX Ignore relative position. */
+			*pos = cue.tracks[i].pos;
+			return true;
 		}
 	}
 
@@ -442,7 +446,7 @@ main(int argc, char *argv[])
 	struct state state;
 
 	char *path;
-	unsigned long chapt_id;
+	uint64_t chapt_id;
 
 	int readyfd_n;
 
@@ -471,7 +475,7 @@ main(int argc, char *argv[])
 		if (strlen(path) < 1)
 			die(0, "Non-zero path length");
 
-		chapt_id = strtoul(argv[2], &end, 10);
+		chapt_id = strtoull(argv[2], &end, 10);
 		if (end != argv[2] + strlen(argv[2]))
 			die(0, "Invalid chapter ID");
 	}

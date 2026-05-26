@@ -344,7 +344,7 @@ mkv_readchapteratom(int fd, struct mkv_chapter *chapter)
 		break;
 	case MKV_CHAPTERTRACK:
 		ebml_descend(fd, MKV_CHAPTERTRACK);
-		while (ebml_peek(fd) == MKV_CHAPTERTRACKUID)
+		while (track_i < TRACKS_MAX && ebml_peek(fd) == MKV_CHAPTERTRACKUID)
 			if (!ebml_readuint(fd, MKV_CHAPTERTRACKUID, &chapter->track_uids[track_i++]))
 				goto err;
 		break;
