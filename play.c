@@ -63,12 +63,12 @@ struct playback {
 };
 
 struct state {
-	snd_pcm_t *pcm;
-	int src;
+	snd_pcm_t     *pcm;
+	int            src;
 	struct playback play;
-	struct cfg cfg;
-	struct pollfd fds[FD_END];
-	bool run;
+	struct cfg     cfg;
+	struct pollfd *fds;
+	bool           run;
 };
 
 static int err = 0;
@@ -110,17 +110,24 @@ static bool handle_sigs(struct state *);
 
 /* Cleanup functions (used with [[cleanup(...)]]). */
 
-[[gnu::unused]]
 void cleanup_pollfds(struct pollfd (*)[FD_END]);
-
-[[gnu::unused]]
 void cleanup_pcm(snd_pcm_t **);
 
 void
 cleanup_pollfds(struct pollfd (*fds)[FD_END])
 {
-	for (int i = 0; i < FD_END; i += 1)
+	for (int i = FD_SIG; i < FD_END; i += 1)
 		close((*fds)[i].fd), errno = 0;
+}
+
+void
+cleanup_pcm(snd_pcm_t **pcm)
+{
+	if (!*pcm) return;
+	/* XXX Locks up process, should be brief on low period sizes. */
+	snd_pcm_drain(*pcm);
+	snd_pcm_close(*pcm);
+	*pcm = NULL;
 }
 
 static ssize_t
@@ -443,7 +450,10 @@ rem(struct buf buf)
 int
 main(int argc, char *argv[])
 {
-	struct state state;
+	[[gnu::cleanup(cleanup_pollfds)]] struct pollfd fds[FD_END] = {};
+	[[gnu::cleanup(cleanup_pcm)]]    snd_pcm_t    *pcm = NULL;
+
+	struct state state = {.src = -1, .fds = fds};
 
 	char *path;
 	uint64_t chapt_id;
@@ -498,7 +508,8 @@ main(int argc, char *argv[])
 		snd_pcm_format_t format;
 		int dir = 0;
 
-		SND_ERR(== 0, pcm_open, &state.pcm, "default", SND_PCM_STREAM_PLAYBACK, 0);
+		SND_ERR(== 0, pcm_open, &pcm, "default", SND_PCM_STREAM_PLAYBACK, 0);
+		state.pcm = pcm;
 
 		snd_pcm_hw_params_alloca(&hwparams);
 		snd_pcm_hw_params_any(state.pcm, hwparams);
@@ -542,17 +553,8 @@ main(int argc, char *argv[])
 		handle_sigs(&state);
 	}
 
-	/* Clean up. */
-
-	/* XXX Locks up process, should be brief on low period sizes. */
-	SND_WARN(== 0, pcm_drain, state.pcm);
-
 	if (close(state.src) == -1)
 		debug(errno, "Can't close %s", path);
-	if (close(state.fds[FD_PCM].fd) == -1)
-		debug(errno, "Can't close Alsa PCM");
-	if (close(state.fds[FD_SIG].fd) == -1)
-		debug(errno, "Can't close signal descriptor");
 
-	exit(readyfd_n == -1 ? EXIT_FAILURE : EXIT_SUCCESS);
+	return readyfd_n == -1 ? EXIT_FAILURE : EXIT_SUCCESS;
 }
