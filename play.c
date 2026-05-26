@@ -124,8 +124,6 @@ void
 cleanup_pcm(snd_pcm_t **pcm)
 {
 	if (!*pcm) return;
-	/* XXX Locks up process, should be brief on low period sizes. */
-	snd_pcm_drain(*pcm);
 	snd_pcm_close(*pcm);
 	*pcm = NULL;
 }
