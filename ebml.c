@@ -21,7 +21,7 @@ read_be(int fd, uint64_t *out, size_t n)
 	uint8_t buf[sizeof(uint64_t)];
 	uint64_t val = 0;
 
-	if (read(fd, buf, n) != (ssize_t)n)
+	if (n > sizeof buf || read(fd, buf, n) != (ssize_t)n)
 		return 0;
 	for (size_t i = 0; i < n; i++)
 		val = (val << 8) | buf[i];
@@ -73,6 +73,10 @@ vint_read(int fd, struct vint *vint)
 uint64_t
 vint_value(struct vint vint)
 {
+#if __has_builtin(__builtin_unreachable)
+	if (vint.size > VINT_OCTET_MAX)
+		__builtin_unreachable();
+#endif
 	return vint.raw & ~(UINT64_C(1) << (7 * vint.size));
 }
 
@@ -85,7 +89,7 @@ ebml_id_eq(uint32_t id, struct vint vint_id)
 		return 1;
 
 	for (markpos = 0; markpos < 32; markpos += 1)
-		if (id & (1u << (31 - markpos))) break;
+		if (id & (UINT32_C(1) << (31 - markpos))) break;
 	markpos %= 8; /* EBML IDs are guaranteed to be minimally sized. */
 
 	if (markpos + 1 != vint_id.size)
@@ -147,8 +151,7 @@ int
 ebml_readsint(int fd, uint_least32_t expected_id, int64_t *dest)
 {
 	struct vint id, l;
-	unsigned long len;
-	uint64_t val;
+	uint64_t len, val;
 	off_t begin;
 
 	begin = pos(fd);
@@ -180,8 +183,7 @@ int
 ebml_readuint(int fd, uint_least32_t expected_id, uint64_t *dest)
 {
 	struct vint id, l;
-	unsigned long len;
-	uint64_t val;
+	uint64_t len, val;
 	off_t begin;
 
 	begin = pos(fd);
@@ -277,7 +279,7 @@ int
 ebml_readbinary(int fd, uint_least32_t expected_id, void *dest, size_t dest_sz)
 {
 	struct vint id, l;
-	unsigned long len;
+	uint64_t len;
 	off_t begin;
 
 	memset(dest, 0, dest_sz);
