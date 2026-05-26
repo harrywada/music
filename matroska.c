@@ -366,3 +366,132 @@ err:
 	seek(fd, begin);
 	return 0;
 }
+
+int
+mkv_findchapter(int fd, uint64_t id, struct mkv_chapter *c)
+{
+	if (ebml_descend(fd, MKV_CHAPTERS) == -1)
+		return 0;
+
+	for (;;) {
+		off_t end;
+
+		if ((end = ebml_descend(fd, MKV_EDITIONENTRY)) == -1)
+			return 0;
+		while (pos(fd) < end) {
+			if (ebml_peek(fd) != MKV_CHAPTERATOM) {
+				ebml_skip(fd, EBML_ANY_ELEMENT);
+				continue;
+			}
+			if (!mkv_readchapteratom(fd, c))
+				return 0;
+			if (c->uid == id)
+				return 1;
+		}
+	}
+}
+
+int
+mkv_findtrack(int fd, const uint64_t uids[static TRACKS_MAX], struct mkv_track *t)
+{
+	bool any = true;
+	for (int i = 0; i < TRACKS_MAX; i += 1)
+		if (uids[i]) { any = false; break; }
+
+	if (ebml_descend(fd, MKV_TRACKS) == -1)
+		return 0;
+	for (;;) {
+		if (!mkv_readtrackentry(fd, t))
+			return 0;
+		if (!t->enabled || t->type != AUDIO)
+			continue;
+		if (any)
+			return 1;
+		for (int i = 0; i < TRACKS_MAX; i += 1)
+			if (t->uid == uids[i])
+				return 1;
+	}
+}
+
+int
+mkv_findcue(int fd, uint64_t start, uint64_t ts_scale, uint32_t track, off_t *out)
+{
+	struct mkv_cue cue = {0}, next;
+	int found = 0;
+
+	if (ebml_descend(fd, MKV_CUES) == -1)
+		return 0;
+
+	while (mkv_readcuepoint(fd, &next)) {
+		if (next.time * ts_scale > start)
+			break;
+		cue = next;
+		found = 1;
+	}
+
+	if (!found)
+		return 0;
+
+	for (int i = 0; i < TRACKS_MAX; i += 1) {
+		if (cue.tracks[i].num == track) {
+			*out = cue.tracks[i].pos;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+ssize_t
+mkv_nextframe(int fd, struct mkv_cursor *cursor, const struct mkv_range *range)
+{
+	const off_t begin = pos(fd);
+
+	for (;;) switch (ebml_peek(fd)) {
+	case MKV_CLUSTER:
+		if (ebml_descend(fd, MKV_CLUSTER) == -1)
+			goto err;
+		if (!ebml_readuint(fd, MKV_CLUSTERTIMESTAMP, &cursor->cluster.ts))
+			goto err;
+		break;
+
+	case MKV_BLOCKGROUP:
+		ebml_descend(fd, MKV_BLOCKGROUP);
+		break;
+
+	case MKV_SIMPLEBLOCK:
+		[[fallthrough]];
+	case MKV_BLOCK: {
+		struct mkv_block b;
+
+		if (!mkv_readblock(fd, &b))
+			goto err;
+
+		if (vint_value(b.track) != range->track) {
+			seek(fd, pos(fd) + b.frames_sz);
+			break;
+		}
+
+		const uint64_t ts = range->ts_scale
+		                  * (cursor->cluster.ts + (uint64_t) b.timecode);
+		if (ts < range->start) {
+			seek(fd, pos(fd) + b.frames_sz);
+			break;
+		}
+		if (range->end && ts >= range->end) {
+			seek(fd, pos(fd) + b.frames_sz);
+			return 0;
+		}
+
+		return (ssize_t) b.frames_sz;
+	}
+
+	case 0:
+		[[fallthrough]];
+	default:
+		return -1;
+	}
+
+err:
+	seek(fd, begin);
+	return -1;
+}

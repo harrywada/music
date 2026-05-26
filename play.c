@@ -48,18 +48,16 @@ struct buf {
 /* Audio configuration. */
 struct cfg {
 	uint8_t  chans, bps;
-	uint32_t track;
-	uint64_t ts_scale;
 	double   rate;
-	struct { uint64_t start, end; } times;
+	struct mkv_range range;
 	off_t start;
 };
 
 /* Mutable playback cursor: where we are in the stream. */
 struct playback {
-	struct mkv_cluster cluster;
-	size_t pending;  /* bytes from last block not yet committed */
-	bool done;       /* chapter end reached */
+	struct mkv_cursor cursor;
+	size_t pending;
+	bool done;
 };
 
 struct state {
@@ -80,28 +78,11 @@ static void *head(struct buf);
 [[gnu::const]]
 static size_t rem(struct buf);
 
-/* Advances to the next frame for the configured track within the chapter.
-   Returns frame size (fd positioned at data), 0 at chapter end, -1 on error. */
-[[nodiscard, gnu::fd_arg_read(1)]]
-static ssize_t next_frame(int, struct playback *, const struct cfg *);
-
 /* Configuration parsing functions. */
 
 /* Extracts necessary configuration data from Matroska data. */
 [[gnu::cold, gnu::fd_arg_read(1)]]
 static bool read_cfg(int, struct cfg *, uint64_t);
-
-/* Finds a chapter with a given UID. */
-[[gnu::cold, gnu::fd_arg_read(1)]]
-static bool find_chapter(int, uint64_t, struct mkv_chapter *);
-
-/* Finds a track with ... TODO should only be one track; filter out non-audio ones beforehand. */
-[[gnu::cold, gnu::fd_arg_read(1)]]
-static bool find_track(int, uint64_t [static TRACKS_MAX], struct mkv_track *);
-
-/* From the start time, use cues to find the position of the first chapter. */
-[[gnu::cold, gnu::fd_arg_read(1)]]
-static bool find_cue(int, uint64_t, uint64_t, unsigned int, off_t *);
 
 /* Event handling functions. */
 
@@ -126,60 +107,6 @@ cleanup_pcm(snd_pcm_t **pcm)
 	if (!*pcm) return;
 	snd_pcm_close(*pcm);
 	*pcm = NULL;
-}
-
-static ssize_t
-next_frame(int fd, struct playback *play, const struct cfg *cfg)
-{
-	const off_t begin = pos(fd);
-
-	for (;;) switch (ebml_peek(fd)) {
-	case MKV_CLUSTER:
-		if (ebml_descend(fd, MKV_CLUSTER) == -1)
-			goto err;
-		if (!ebml_readuint(fd, MKV_CLUSTERTIMESTAMP, &play->cluster.ts))
-			goto err;
-		break;
-
-	case MKV_BLOCKGROUP:
-		ebml_descend(fd, MKV_BLOCKGROUP);
-		break;
-
-	case MKV_SIMPLEBLOCK:
-		[[fallthrough]];
-	case MKV_BLOCK: {
-		struct mkv_block b;
-
-		if (!mkv_readblock(fd, &b))
-			goto err;
-
-		if (vint_value(b.track) != cfg->track) {
-			seek(fd, pos(fd) + b.frames_sz);
-			break;
-		}
-
-		const uint64_t ts = cfg->ts_scale * (play->cluster.ts + b.timecode);
-		if (ts < cfg->times.start) {
-			seek(fd, pos(fd) + b.frames_sz);
-			break;
-		}
-		if (cfg->times.end && ts >= cfg->times.end) {
-			seek(fd, pos(fd) + b.frames_sz);
-			return 0;
-		}
-
-		return (ssize_t) b.frames_sz;
-	}
-
-	case 0:
-		[[fallthrough]];
-	default:
-		return -1;
-	}
-
-err:
-	seek(fd, begin);
-	return -1;
 }
 
 static bool
@@ -230,7 +157,7 @@ handle_alsa(struct state *s)
 			continue;
 		}
 
-		const ssize_t sz = next_frame(s->src, &s->play, &s->cfg);
+		const ssize_t sz = mkv_nextframe(s->src, &s->play.cursor, &s->cfg.range);
 		if (sz <= 0) {
 			s->play.done = true;
 			break;
@@ -341,102 +268,30 @@ read_cfg(int fd, struct cfg *cfg, uint64_t id)
 	}
 
 	seek(fd, si.segment + si.chapters);
-	if (!find_chapter(fd, id, &chapter)) {
+	if (!mkv_findchapter(fd, id, &chapter)) {
 		return false;
 	}
 
 	seek(fd, si.segment + si.tracks);
-	if (!find_track(fd, chapter.track_uids, &track)) {
+	if (!mkv_findtrack(fd, chapter.track_uids, &track)) {
 		return false;
 	}
 
 	seek(fd, si.segment + si.cues);
-	if (!find_cue(fd, chapter.start, info.ts_scale, track.num, &start_pos)) {
+	if (!mkv_findcue(fd, chapter.start, info.ts_scale, track.num, &start_pos)) {
 		return false;
 	}
 
-	cfg->ts_scale = info.ts_scale;
-	cfg->times.start = chapter.start;
-	cfg->times.end = chapter.end;
-	cfg->chans = track.channels;
-	cfg->bps = track.bps;
-	cfg->track = track.num;
-	cfg->rate = track.rate;
-	cfg->start = si.segment + start_pos;
+	cfg->range.ts_scale = info.ts_scale;
+	cfg->range.start    = chapter.start;
+	cfg->range.end      = chapter.end;
+	cfg->range.track    = track.num;
+	cfg->chans          = track.channels;
+	cfg->bps            = track.bps;
+	cfg->rate           = track.rate;
+	cfg->start          = si.segment + start_pos;
 
 	return true;
-}
-
-static bool
-find_chapter(int fd, uint64_t id, struct mkv_chapter *c)
-{
-	if (ebml_descend(fd, MKV_CHAPTERS) == -1) {
-		return false;
-	}
-
-	for (;;) { /* Find relevant chapter. */
-		off_t end;
-
-		if ((end = ebml_descend(fd, MKV_EDITIONENTRY)) == -1)
-			return false;
-		while (pos(fd) < end) {
-			if (ebml_peek(fd) != MKV_CHAPTERATOM) {
-				ebml_skip(fd, EBML_ANY_ELEMENT);
-				continue;
-			}
-			if (!mkv_readchapteratom(fd, c))
-				return false; /* Should never happen. */
-			if (c->uid == id)
-				return true;
-		}
-	}
-}
-
-static bool
-find_track(int fd, uint64_t uids[static TRACKS_MAX], struct mkv_track *t)
-{
-	if (ebml_descend(fd, MKV_TRACKS) == -1)
-		return false;
-	for (;;) { /* Find relevant track. */
-		if (!mkv_readtrackentry(fd, t))
-			return false;
-		if (!t->enabled || t->type != AUDIO)
-			continue;
-		for (int i = 0; i < TRACKS_MAX; i += 1) {
-			if (t->uid == uids[i])
-				return true;
-		}
-	}
-}
-
-static bool
-find_cue(int fd, uint64_t start, uint64_t scale, unsigned int track, off_t *pos)
-{
-	struct mkv_cue cue = {0}, next;
-	bool found = false;
-
-	if (ebml_descend(fd, MKV_CUES) == -1)
-		return false;
-
-	while (mkv_readcuepoint(fd, &next)) {
-		if (next.time * scale > start)
-			break;
-		cue = next;
-		found = true;
-	}
-
-	if (!found)
-		return false;
-
-	for (int i = 0; i < TRACKS_MAX; i += 1) {
-		if (cue.tracks[i].num == track) {
-			/* XXX Ignore relative position. */
-			*pos = cue.tracks[i].pos;
-			return true;
-		}
-	}
-
-	return false;
 }
 
 static size_t

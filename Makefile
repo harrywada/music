@@ -17,9 +17,10 @@ _tests.ts_tests.c:
 	checkmk $< >$@
 
 LDFLAGS += -lcheck
+cmds_tests: cmds_tests.c cmds.o state.o
 ebml_tests: ebml_tests.c ebml.o utils.o utils_le.o
-matroska_tests: matroska_tests.c matroska.o
-queue_tests: queue_tests.c queue.o song.o
+matroska_tests: matroska_tests.c matroska.o ebml.o utils.o utils_le.o
+queue_tests: queue_tests.c queue.o song.o utils.o
 song_tests: song_tests.c song.o utils.o
 utils_tests: utils_tests.c utils.o
 utils_le_tests: utils_le_tests.c utils_le.o

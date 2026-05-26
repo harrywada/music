@@ -110,6 +110,18 @@ struct mkv_chapter {
 	uint64_t track_uids[TRACKS_MAX]; /* If all 0, all tracks apply. */
 };
 
+/* Immutable playback configuration passed to mkv_nextframe. */
+struct mkv_range {
+	uint32_t track;
+	uint64_t ts_scale;
+	uint64_t start, end; /* nanoseconds; end == 0 means play to EOF */
+};
+
+/* Mutable stream cursor updated by mkv_nextframe across calls. */
+struct mkv_cursor {
+	struct mkv_cluster cluster;
+};
+
 [[gnu::fd_arg_read(1)]]
 int mkv_readseekinfo(int, struct mkv_seekinfo *);
 [[gnu::fd_arg_read(1)]]
@@ -122,3 +134,12 @@ int mkv_readcuepoint(int, struct mkv_cue *);
 int mkv_readblock(int, struct mkv_block *); /* Only reads header; data remains. */
 [[gnu::fd_arg_read(1)]]
 int mkv_readchapteratom(int, struct mkv_chapter *);
+
+[[gnu::fd_arg_read(1)]]
+int mkv_findchapter(int, uint64_t, struct mkv_chapter *);
+[[gnu::fd_arg_read(1)]]
+int mkv_findtrack(int, const uint64_t [static TRACKS_MAX], struct mkv_track *);
+[[gnu::fd_arg_read(1)]]
+int mkv_findcue(int, uint64_t, uint64_t, uint32_t, off_t *);
+[[nodiscard, gnu::fd_arg_read(1)]]
+ssize_t mkv_nextframe(int, struct mkv_cursor *, const struct mkv_range *);
