@@ -70,11 +70,9 @@ vint_read(int fd, struct vint *vint)
 	return 1;
 }
 
-unsigned long
+uint64_t
 vint_value(struct vint vint)
 {
-	if (vint.size > sizeof(unsigned long))
-		abort();
 	return vint.raw & ~(UINT64_C(1) << (7 * vint.size));
 }
 
@@ -119,7 +117,7 @@ ebml_peek(int fd)
 	off_t begin;
 
 	begin = pos(fd);
-	res = EBML_ANY_ELEMENT;
+	res = 0;
 	if (!vint_read(fd, &id) || id.size > sizeof res)
 		goto end;
 

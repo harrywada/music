@@ -72,7 +72,7 @@ struct {
 
 struct {
 	struct vint vint;
-	long expect;
+	uint64_t expect;
 } test_value_returns_correct_value_cases[] = {
        /* vint                            expect */
 	{ { 1, 0x85                    }, 5 },
@@ -82,12 +82,8 @@ struct {
 
 #test-loop(0, 3) vint_value_returns_correct_value
 	struct vint vint = test_value_returns_correct_value_cases[_i].vint;
-	long expect = test_value_returns_correct_value_cases[_i].expect;
-	ck_assert_int_eq(vint_value(vint), expect);
-
-#test-signal(6) vint_value_aborts_on_too_big
-	struct vint vint = { sizeof(long) + 1, 0 };
-	vint_value(vint);
+	uint64_t expect = test_value_returns_correct_value_cases[_i].expect;
+	ck_assert_uint_eq(vint_value(vint), expect);
 
 #tcase ebml_id_eq
 
@@ -192,7 +188,7 @@ struct {
 	write(fd, bad_id, sizeof(bad_id));
 	lseek(fd, 0, SEEK_SET);
 
-	ck_assert_int_eq(ebml_peek(fd), EAL);
+	ck_assert_int_eq(ebml_peek(fd), 0);
 	ck_assert_int_eq(lseek(fd, 0, SEEK_SET), 0);
 
 #tcase ebml_skip

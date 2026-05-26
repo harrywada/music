@@ -13,9 +13,10 @@ struct vint {
 	uint64_t raw; /* Full encoded value, VINT_MARKER included. */
 };
 
-[[gnu::fd_arg_read(1)]]
+[[gnu::fd_arg_read(1), gnu::nonnull(2)]]
 int vint_read(int fd, struct vint *);
-unsigned long vint_value(struct vint);
+[[gnu::const]]
+uint64_t vint_value(struct vint);
 
 [[gnu::const]]
 int ebml_id_eq(uint_least32_t, struct vint); /* Assume IDs are at most four bytes. */
@@ -23,19 +24,19 @@ int ebml_id_eq(uint_least32_t, struct vint); /* Assume IDs are at most four byte
 [[gnu::fd_arg_read(1)]]
 off_t ebml_descend(int, uint_least32_t); /* Assume IDs are at most four bytes. */
 [[gnu::fd_arg_read(1)]]
-uint32_t ebml_peek(int); /* Assume IDs are at most four bytes. */
+uint32_t ebml_peek(int); /* Returns 0 on error. IDs are at most four bytes. */
 [[gnu::fd_arg_read(1)]]
 off_t ebml_skip(int, uint_least32_t); /* Assume IDs are at most four bytes. */
 
-[[gnu::fd_arg_read(1)]]
+[[gnu::fd_arg_read(1), gnu::nonnull(3)]]
 int ebml_readsint(int, uint_least32_t, int64_t *);
-[[gnu::fd_arg_read(1)]]
+[[gnu::fd_arg_read(1), gnu::nonnull(3)]]
 int ebml_readuint(int, uint_least32_t, uint64_t *);
-[[gnu::fd_arg_read(1)]]
+[[gnu::fd_arg_read(1), gnu::nonnull(3)]]
 int ebml_readfloat(int, uint_least32_t, double *);
-[[gnu::fd_arg_read(1)]]
+[[gnu::fd_arg_read(1), gnu::nonnull(3, 4)]]
 int ebml_readstring(int, uint_least32_t, char **, size_t *); /* Handles UTF-8 and ASCII. */
-[[gnu::fd_arg_read(1)]]
+[[gnu::fd_arg_read(1), gnu::nonnull(3)]]
 int ebml_readdate(int, uint_least32_t, time_t *);
-[[gnu::fd_arg_read(1)]]
+[[gnu::fd_arg_read(1), gnu::nonnull(3)]]
 int ebml_readbinary(int, uint_least32_t, void *, size_t);

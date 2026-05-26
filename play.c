@@ -192,7 +192,7 @@ fill_data(int fd, struct state *s, struct buf *buf)
 
 		break;
 
-	case EBML_ANY_ELEMENT:
+	case 0: /* ebml_peek error */
 		[[fallthrough]];
 	default:
 		goto end;
