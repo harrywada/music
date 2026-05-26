@@ -4,7 +4,7 @@
 #include <poll.h> /* poll(2). */
 #include <signal.h> /* sigaddset(3), sigemptyset(3), sigprocmask(3), sigset_t(3type). */
 #include <stdint.h> /* intN_t(3type). */
-#include <stdlib.h> /* abs(3), EXIT_FAILURE(3const), EXIT_SUCCESS(3const), exit(3), strtoul(3). */
+#include <stdlib.h> /* EXIT_FAILURE(3const), EXIT_SUCCESS(3const), exit(3), strtoul(3). */
 #include <string.h> /* strlen(3). */
 #include <sys/signalfd.h> /* signalfd(2). */
 
@@ -48,25 +48,28 @@ struct buf {
 
 /* Audio configuration. */
 struct cfg {
-	unsigned int chans, bps, track, ts_scale;
-	double rate;
-	struct ts_range { unsigned long start, end; } times;
+	uint8_t  chans, bps;
+	uint32_t track;
+	uint64_t ts_scale;
+	double   rate;
+	struct { uint64_t start, end; } times;
 	off_t start;
 };
 
-/* Info to read any remaining audio frames. */
-struct leftover {
-	struct mkv_cluster clust;
-	size_t rem;
+/* Mutable playback cursor: where we are in the stream. */
+struct playback {
+	struct mkv_cluster cluster;
+	size_t pending;  /* bytes from last block not yet committed */
+	bool done;       /* chapter end reached */
 };
 
-/* Global, messy state. */
 struct state {
-	snd_pcm_t *pcm;
-	struct leftover lo;
-	struct cfg cfg;
-	struct pollfd fds[FD_END];
-	bool run;
+	snd_pcm_t      *pcm;
+	unsigned short  pcm_events;  /* saved from snd_pcm_poll_descriptors */
+	struct playback play;
+	struct cfg      cfg;
+	struct pollfd   fds[FD_END];
+	bool            run;
 };
 
 static int err = 0;
@@ -79,8 +82,8 @@ static void *head(struct buf);
 static size_t rem(struct buf);
 
 /* Reads data from the file descriptor into a buffer. */
-[[gnu::fd_arg_read(1)]]
-static ssize_t fill_data(int, struct state *, struct buf *);
+[[nodiscard, gnu::fd_arg_read(1)]]
+static ssize_t fill_data(int, const struct cfg *, struct playback *, struct buf *);
 
 /* Configuration parsing functions. */
 
@@ -118,23 +121,23 @@ void
 cleanup_pollfds(struct pollfd (*fds)[FD_END])
 {
 	for (int i = 0; i < FD_END; i += 1)
-		close(abs((*fds)[i].fd)), errno = 0;
+		close((*fds)[i].fd), errno = 0;
 }
 
 static ssize_t
-fill_data(int fd, struct state *s, struct buf *buf)
+fill_data(int fd, const struct cfg *cfg, struct playback *play, struct buf *buf)
 {
 	const off_t begin = pos(fd);
 	const size_t pre_n = buf->n;
 
-	if (s->lo.rem) {
-		const size_t avail = MIN(rem(*buf), s->lo.rem);
+	if (play->pending) {
+		const size_t avail = MIN(rem(*buf), play->pending);
 		if (read(fd, head(*buf), avail) != (ssize_t) avail) {
 			debug(errno, "read");
 			goto err;
 		}
 		buf->n += avail;
-		s->lo.rem -= avail;
+		play->pending -= avail;
 	}
 
 	while (rem(*buf)) switch (ebml_peek(fd)) {
@@ -143,7 +146,7 @@ fill_data(int fd, struct state *s, struct buf *buf)
 			goto err;
 		}
 
-		if (!ebml_readuint(fd, MKV_CLUSTERTIMESTAMP, &s->lo.clust.ts)) {
+		if (!ebml_readuint(fd, MKV_CLUSTERTIMESTAMP, &play->cluster.ts)) {
 			goto err;
 		}
 
@@ -162,25 +165,23 @@ fill_data(int fd, struct state *s, struct buf *buf)
 			goto err;
 		}
 
-		if (vint_value(b.track) != s->cfg.track) {
+		if (vint_value(b.track) != cfg->track) {
 			seek(fd, pos(fd) + b.frames_sz);
 			break;
 		}
 
-		const unsigned long ts = s->cfg.ts_scale * (s->lo.clust.ts + b.timecode);
-		if (ts < s->cfg.times.start) {
+		const uint64_t ts = cfg->ts_scale * (play->cluster.ts + b.timecode);
+		if (ts < cfg->times.start) {
 			seek(fd, pos(fd) + b.frames_sz);
 			break;
-		} else if (ts >= s->cfg.times.end) {
-			s->run = 0;
-			s->fds[FD_PCM].fd = -1 * s->fds[FD_PCM].fd;
-
+		} else if (ts >= cfg->times.end) {
+			play->done = true;
 			seek(fd, pos(fd) + b.frames_sz);
 			goto end;
 		}
 
 		if (rem(*buf) < b.frames_sz) {
-			s->lo.rem += b.frames_sz - rem(*buf);
+			play->pending += b.frames_sz - rem(*buf);
 		}
 
 		const size_t avail = MIN(rem(*buf), b.frames_sz);
@@ -233,18 +234,18 @@ handle_alsa(struct state *s)
 
 	/* Check if audio data is ready. */
 
-	if (s->fds[FD_SRC].fd < 0) {
-		s->fds[FD_SRC].fd = abs(s->fds[FD_SRC].fd);
+	if (!s->fds[FD_SRC].events) {
+		s->fds[FD_SRC].events = POLLIN;
 		switch (poll(&s->fds[FD_SRC], 1, 0)) {
 		case -1:
 			debug(errno, "poll");
 			[[fallthrough]];
 		case  0:
 			/* Wait for source. */
-			s->fds[FD_PCM].fd = -1 * abs(s->fds[FD_PCM].fd);
+			s->fds[FD_PCM].events = 0;
 			return true;
 		default:
-			s->fds[FD_SRC].fd = -1 * abs(s->fds[FD_SRC].fd);
+			s->fds[FD_SRC].events = 0;
 			break;
 		}
 	}
@@ -274,8 +275,13 @@ handle_alsa(struct state *s)
 
 	/* Read data. */
 
-	if (fill_data(abs(s->fds[FD_SRC].fd), s, &buf) == -1) {
+	if (fill_data(s->fds[FD_SRC].fd, &s->cfg, &s->play, &buf) == -1) {
 		debug(0, "Can't read audio data");
+	}
+
+	if (s->play.done) {
+		s->run = false;
+		s->fds[FD_PCM].events = 0;
 	}
 
 	/* Commit data. */
@@ -319,7 +325,7 @@ handle_sigs(struct state *s)
 
 	switch (siginfo.ssi_signo) {
 	case SIGHUP:
-		s->run = 0;
+		s->run = false;
 		SND_WARN(== 0, pcm_drop, s->pcm);
 		return false;
 	case SIGUSR1:
@@ -339,9 +345,9 @@ handle_sigs(struct state *s)
 static bool
 handle_src(struct state *s)
 {
-	if (s->fds[FD_SRC].fd > 0 && s->fds[FD_SRC].revents & POLLIN) {
-		/* The descriptor can only be positive if the PCM is waiting. */
-		s->fds[FD_PCM].fd = abs(s->fds[FD_PCM].fd);
+	if (s->fds[FD_SRC].events && s->fds[FD_SRC].revents & POLLIN) {
+		/* SRC is only active when PCM is waiting for it. */
+		s->fds[FD_PCM].events = s->pcm_events;
 		memset(&s->fds[FD_PCM].revents, 0, sizeof s->fds[FD_PCM].revents);
 	}
 
@@ -532,8 +538,8 @@ main(int argc, char *argv[])
 
 		seek(state.fds[FD_SRC].fd, state.cfg.start);
 
-		/* Should mostly be available, so by default don't poll it. */
-		state.fds[FD_SRC].fd = -1 * abs(state.fds[FD_SRC].fd);
+		/* Should mostly be available; poll only on demand. */
+		state.fds[FD_SRC].events = 0;
 	}
 
 	{ /* Set up Alsa PCM. */
@@ -576,14 +582,15 @@ main(int argc, char *argv[])
 		
 		SND_ERR(== 1, pcm_poll_descriptors_count, state.pcm);
 		SND_ERR(== 1, pcm_poll_descriptors, state.pcm, &state.fds[FD_PCM], 1);
+		state.pcm_events = state.fds[FD_PCM].events;
 		state.fds[FD_PCM].revents = POLLOUT;
 	}
 
 	/* Event loop. */
 
-	memset(&state.lo, 0, sizeof state.lo);
-	state.run = 1;
-	while (state.run && (readyfd_n = (poll(state.fds, FD_END, -1)) != -1)) {
+	memset(&state.play, 0, sizeof state.play);
+	state.run = true;
+	while (state.run && (readyfd_n = poll(state.fds, FD_END, -1)) != -1) {
 		handle_alsa(&state);
 		handle_sigs(&state);
 		handle_src(&state);
@@ -594,12 +601,12 @@ main(int argc, char *argv[])
 	/* XXX Locks up process, should be brief on low period sizes. */
 	SND_WARN(== 0, pcm_drain, state.pcm);
 
-	if (close(abs(state.fds[FD_SRC].fd)) == -1)
-		debug(errno, "Can'track close %s", path);
-	if (close(abs(state.fds[FD_PCM].fd)) == -1)
-		debug(errno, "Can'track close Alsa PCM");
-	if (close(abs(state.fds[FD_SIG].fd)) == -1)
-		debug(errno, "Can'track close signal descriptor");
+	if (close(state.fds[FD_SRC].fd) == -1)
+		debug(errno, "Can't close %s", path);
+	if (close(state.fds[FD_PCM].fd) == -1)
+		debug(errno, "Can't close Alsa PCM");
+	if (close(state.fds[FD_SIG].fd) == -1)
+		debug(errno, "Can't close signal descriptor");
 
 	exit(readyfd_n == -1 ? EXIT_FAILURE : EXIT_SUCCESS);
 }
