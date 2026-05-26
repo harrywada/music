@@ -1,4 +1,4 @@
-/* Include: ebml.h, stdint.h, sys/types.h. */
+/* Include: ebml.h, stdbool.h, stdint.h, sys/types.h. */
 
 #define MKV_SEGMENT 0x18538067
 
@@ -73,7 +73,7 @@ struct mkv_cluster {
 
 struct mkv_track {
 	uint64_t uid;
-	enum {
+	enum : uint8_t {
 		VIDEO = 1,
 		AUDIO = 2,
 		COMPLEX = 3,
@@ -83,18 +83,18 @@ struct mkv_track {
 		CONTROL = 32,
 		METADATA = 33,
 	} type;
-	uint64_t enabled;
-	uint64_t num;
-	double rate;
-	uint64_t channels;
-	uint64_t bps;
+	bool     enabled;
+	uint32_t num;
+	double   rate;
+	uint8_t  channels;
+	uint8_t  bps;
 };
 
 struct mkv_cue {
 	uint64_t time;
 	struct {
-		off_t pos, relpos;
-		uint64_t num; /* Zero for null tracks. */
+		off_t    pos, relpos;
+		uint32_t num; /* Zero for null tracks. */
 	} tracks[TRACKS_MAX];
 };
 

@@ -95,7 +95,7 @@ mkv_readinfo(int fd, struct mkv_info *info)
 
 	while (pos(fd) < end) switch (ebml_peek(fd)) {
 	case MKV_TIMESTAMPSCALE:
-		if (!ebml_readuint(fd, MKV_TIMESTAMPSCALE, (uint64_t *) &info->ts_scale))
+		if (!ebml_readuint(fd, MKV_TIMESTAMPSCALE, &info->ts_scale))
 			goto err;
 		return 1;
 	default:
@@ -126,26 +126,29 @@ mkv_readtrackentry(int fd, struct mkv_track *track)
 
 	while (pos(fd) < end) switch (ebml_peek(fd)) {
 	case MKV_TRACKNUMBER:
-		if (!ebml_readuint(fd, MKV_TRACKNUMBER, (uint64_t *) &track->num))
+		if (!ebml_readuint(fd, MKV_TRACKNUMBER, &track->num))
 			goto err;
 		break;
 	case MKV_TRACKUID:
 		if (!ebml_readuint(fd, MKV_TRACKUID, &track->uid))
 			goto err;
 		break;
-	case MKV_TRACKTYPE:
-		if (!ebml_readuint(fd, MKV_TRACKTYPE, (uint64_t *) &track->type))
+	case MKV_TRACKTYPE: {
+		uint8_t tmp;
+		if (!ebml_readuint(fd, MKV_TRACKTYPE, &tmp))
 			goto err;
+		track->type = (typeof(track->type)) tmp;
 		break;
+	}
 	case MKV_FLAGENABLED:
-		if (!ebml_readuint(fd, MKV_FLAGENABLED, (uint64_t *) &track->enabled))
+		if (!ebml_readuint(fd, MKV_FLAGENABLED, &track->enabled))
 			goto err;
 		break;
 	case MKV_AUDIO:
 		ebml_descend(fd, MKV_AUDIO);
 		break;
 	case MKV_SAMPLINGFREQUENCY:
-		if (!ebml_readfloat(fd, MKV_SAMPLINGFREQUENCY, (double *) &track->rate))
+		if (!ebml_readfloat(fd, MKV_SAMPLINGFREQUENCY, &track->rate))
 			goto err;
 		break;
 	case MKV_CHANNELS:
