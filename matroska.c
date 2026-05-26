@@ -18,8 +18,8 @@
 int
 mkv_readseekinfo(int fd, struct mkv_seekinfo *sk_info)
 {
-	uint_least32_t sk_id;
-	off_t sk_pos;
+	uint_least32_t sk_id = 0;
+	off_t sk_pos = 0;
 
 	off_t begin, end;
 	unsigned int i;
@@ -213,6 +213,9 @@ mkv_readcuepoint(int fd, struct mkv_cue *cue)
 				goto err;
 			cue->tracks[track_i].relpos = tmp;
 			break;
+		default:
+			ebml_skip(fd, EBML_ANY_ELEMENT);
+			break;
 		}
 
 		track_i += 1;
@@ -268,26 +271,30 @@ mkv_readblock(int fd, struct mkv_block *block)
 		block->frames_sz = end - pos(fd);
 		break;
 	case 2: /* Xiph lacing. */
-		if (read(fd, &block->frames_n, 1) == -1)
+		if (read(fd, &block->frames_n, 1) != 1)
 			goto err;
 		block->frames_sz = 0;
-		for (i = 0; i < block->frames_n; i += 1)
+		for (i = 0; i < block->frames_n; i += 1) {
+			uint8_t b;
+			framesize = 0;
 			do {
-				if (read(fd, &framesize, 2) == -1)
+				if (read(fd, &b, 1) != 1)
 					goto err;
-				block->frames_sz += framesize;
-			} while (framesize == 0xff);
+				framesize += b;
+			} while (b == 0xff);
+			block->frames_sz += framesize;
+		}
 		block->frames_sz += end - (pos(fd) + block->frames_sz);
 		block->frames_n += 1;
 		break;
 	case 4: /* Fixed-size lacing. */
-		if (read(fd, &block->frames_n, 1) == -1)
+		if (read(fd, &block->frames_n, 1) != 1)
 			goto err;
 		block->frames_n += 1;
 		block->frames_sz = end - pos(fd);
 		break;
 	case 6: /* EBML lacing. */
-		if (read(fd, &block->frames_n, 1) == -1)
+		if (read(fd, &block->frames_n, 1) != 1)
 			goto err;
 		if (!vint_read(fd, &ebml_framesize))
 			goto err;
@@ -295,7 +302,7 @@ mkv_readblock(int fd, struct mkv_block *block)
 		for (i = 0; i < block->frames_n - 1; i += 1) {
 			if (!vint_read(fd, &ebml_framesize))
 				goto err;
-			offset = (2 << ((7 * ebml_framesize.size) - 1)) - 1;
+			offset = (1 << ((7 * ebml_framesize.size) - 1)) - 1;
 			framesize = vint_value(ebml_framesize) - offset + framesize;
 			block->frames_sz += framesize;
 		}
