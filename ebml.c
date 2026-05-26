@@ -29,7 +29,7 @@ vint_read(int fd, struct vint *vint)
 		if (vint->size + 1 > VINT_OCTET_MAX) {
 			return 0;
 		}
-		if (read(fd, &vint->data[vint->size++], sizeof(uint8_t)) == -1) {
+		if (read(fd, &vint->data[vint->size++], sizeof(uint8_t)) != 1) {
 			errno = 0;
 			return 0;
 		}
@@ -43,7 +43,7 @@ vint_read(int fd, struct vint *vint)
 unsigned long
 vint_value(struct vint vint)
 {
-	long result = 0;
+	unsigned long result = 0;
 	uint8_t mask;
 	unsigned int i;
 
@@ -70,10 +70,10 @@ ebml_id_eq(uint32_t id, struct vint vint_id)
 		return 1;
 
 	for (markpos = 0; markpos < 32; markpos += 1)
-		if (id & (1 << (31 - markpos))) break;
+		if (id & (1u << (31 - markpos))) break;
 	markpos %= 8; /* EBML IDs are guaranteed to be minimally sized. */
 
-	if (markpos >= 32 || markpos + 1 != vint_id.size)
+	if (markpos + 1 != vint_id.size)
 		return 0;
 
 	rev_octets(&id, vint_id.size);
@@ -139,6 +139,7 @@ ebml_readsint(int fd, uint_least32_t expected_id, int64_t *dest)
 	off_t begin;
 
 	begin = pos(fd);
+	memset(dest, 0, sizeof *dest);
 	if (!(   vint_read(fd, &id)
 	      && ebml_id_eq(expected_id, id)
 	      && vint_read(fd, &l))
@@ -155,7 +156,7 @@ ebml_readsint(int fd, uint_least32_t expected_id, int64_t *dest)
 	default:
 		{
 			uint64_t mask = UINT64_MAX << (7 + 8 * (len - 1));
-			if (*dest & (1 << (7 + 8 * (len - 1)))) {
+			if (*dest & (INT64_C(1) << (7 + 8 * (len - 1)))) {
 				*dest |= mask;
 			} else    *dest &= ~mask;
 		}
@@ -211,8 +212,7 @@ ebml_readfloat(int fd, uint_least32_t expected_id, double *dest)
 		*dest = f;
 		break;
 	case 0:
-		/* TODO. */
-		abort();
+		*dest = 0.0;
 		break;
 	default:
 		abort();
@@ -238,9 +238,11 @@ ebml_readstring(int fd, uint_least32_t expected_id, char **dest, size_t *sz)
 		return seek(fd, begin), 0;
 
 	if (*sz < vint_value(len)) {
-		*sz  = vint_value(len);
 		*dest = realloc(*dest, vint_value(len));
+		if (*dest == nullptr)
+			return seek(fd, begin), 0;
 	}
+	*sz = vint_value(len);
 
 	if (read(fd, *dest, vint_value(len)) == -1)
 		return seek(fd, begin), 0;
@@ -271,6 +273,5 @@ ebml_readbinary(int fd, uint_least32_t expected_id, void *dest, size_t dest_sz)
 	||  read(fd, dest, len) == -1)
 		return seek(fd, begin), 0;
 
-	rev_octets(dest, len);
 	return 1;
 }
