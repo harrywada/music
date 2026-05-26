@@ -18,13 +18,13 @@
 static int
 read_be(int fd, uint64_t *out, size_t n)
 {
+	uint8_t buf[sizeof(uint64_t)];
 	uint64_t val = 0;
-	uint8_t byte;
-	for (size_t i = 0; i < n; i++) {
-		if (read(fd, &byte, 1) != 1)
-			return 0;
-		val = (val << 8) | byte;
-	}
+
+	if (read(fd, buf, n) != (ssize_t)n)
+		return 0;
+	for (size_t i = 0; i < n; i++)
+		val = (val << 8) | buf[i];
 	*out = val;
 	return 1;
 }
@@ -32,21 +32,40 @@ read_be(int fd, uint64_t *out, size_t n)
 int
 vint_read(int fd, struct vint *vint)
 {
-	uint8_t byte;
+	uint8_t first;
+	int extra;
 
-	vint->size = 0;
-	vint->raw  = 0;
+	if (read(fd, &first, 1) != 1) {
+		errno = 0;
+		return 0;
+	}
 
-	do {
-		if (vint->size + 1 > VINT_OCTET_MAX)
-			return 0;
-		if (read(fd, &byte, 1) != 1) {
+	if (!first)
+		return 0;
+
+#if __has_builtin(__builtin_clz)
+	extra = __builtin_clz((unsigned)first << (sizeof(unsigned) * 8u - 8u));
+#else
+	extra = 0;
+	for (uint8_t b = first; !(b & 0x80); b <<= 1)
+		extra++;
+#endif
+
+	if (extra >= VINT_OCTET_MAX)
+		return 0;
+
+	vint->size = extra + 1;
+	vint->raw  = first;
+
+	if (extra > 0) {
+		uint8_t buf[VINT_OCTET_MAX - 1];
+		if (read(fd, buf, extra) != extra) {
 			errno = 0;
 			return 0;
 		}
-		vint->size++;
-		vint->raw = (vint->raw << 8) | byte;
-	} while (!(vint->raw & (UINT64_C(1) << (7 * vint->size))));
+		for (int i = 0; i < extra; i++)
+			vint->raw = (vint->raw << 8) | buf[i];
+	}
 
 	return 1;
 }
