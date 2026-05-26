@@ -165,7 +165,7 @@ next_frame(int fd, struct playback *play, const struct cfg *cfg)
 			seek(fd, pos(fd) + b.frames_sz);
 			break;
 		}
-		if (ts >= cfg->times.end) {
+		if (cfg->times.end && ts >= cfg->times.end) {
 			seek(fd, pos(fd) + b.frames_sz);
 			return 0;
 		}
@@ -233,9 +233,7 @@ handle_alsa(struct state *s)
 		}
 
 		const ssize_t sz = next_frame(s->src, &s->play, &s->cfg);
-		if (sz < 0)
-			break;
-		if (sz == 0) {
+		if (sz <= 0) {
 			s->play.done = true;
 			break;
 		}
@@ -249,8 +247,10 @@ handle_alsa(struct state *s)
 		s->play.pending = (size_t) sz - n;
 	}
 
-	if (s->play.done)
+	if (s->play.done) {
+		snd_pcm_drain(s->pcm);
 		s->run = false;
+	}
 
 	/* TODO Maybe avoid state, use `snd_pcm_mmap_commit_partial` instead? */
 	res = snd_pcm_mmap_commit(s->pcm, off, snd_pcm_bytes_to_frames(s->pcm, buf.n));
