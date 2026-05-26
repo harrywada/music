@@ -311,12 +311,15 @@ ebml_readstring(int fd, uint_least32_t expected_id, char **dest, size_t *sz)
 	return 1;
 }
 
-/*
-int ebml_readdate(int fd, uint_least32_t expected_id, time_t *dest)
+int
+ebml_readdate(int fd, uint_least32_t expected_id, time_t *dest)
 {
-
+	int64_t val;
+	if (!ebml_readsint(fd, expected_id, &val))
+		return 0;
+	*dest = (time_t)(val / 1000000000 + 978307200);
+	return 1;
 }
-*/
 
 int
 ebml_readbinary(int fd, uint_least32_t expected_id, void *dest, size_t dest_sz)
