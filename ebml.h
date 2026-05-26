@@ -9,8 +9,8 @@
 #define EBML_ANY_ELEMENT UINT32_MAX /* Illegal EBML ID. */
 
 struct vint {
-	size_t size;
-	uint8_t data[VINT_OCTET_MAX]; /* Includes `VINT_MARKER`. */
+	uint8_t  size;
+	uint64_t raw; /* Full encoded value, VINT_MARKER included. */
 };
 
 [[gnu::fd_arg_read(1)]]

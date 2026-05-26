@@ -14,25 +14,39 @@
 #include <sys/types.h>
 #include "ebml.h"
 
+[[gnu::fd_arg_read(1)]]
+static int
+read_be(int fd, uint64_t *out, size_t n)
+{
+	uint64_t val = 0;
+	uint8_t byte;
+	for (size_t i = 0; i < n; i++) {
+		if (read(fd, &byte, 1) != 1)
+			return 0;
+		val = (val << 8) | byte;
+	}
+	*out = val;
+	return 1;
+}
+
 int
 vint_read(int fd, struct vint *vint)
 {
-	uint8_t marker;
+	uint8_t byte;
 
 	vint->size = 0;
+	vint->raw  = 0;
 
-	/* TODO Optimize with __builtin_clgz. */
 	do {
-		if (vint->size + 1 > VINT_OCTET_MAX) {
+		if (vint->size + 1 > VINT_OCTET_MAX)
 			return 0;
-		}
-		if (read(fd, &vint->data[vint->size++], sizeof(uint8_t)) != 1) {
+		if (read(fd, &byte, 1) != 1) {
 			errno = 0;
 			return 0;
 		}
-
-		marker = 1 << (7 - (vint->size - 1) % 8);
-	} while (!(vint->data[(vint->size - 1) / 8] & marker));
+		vint->size++;
+		vint->raw = (vint->raw << 8) | byte;
+	} while (!(vint->raw & (UINT64_C(1) << (7 * vint->size))));
 
 	return 1;
 }
@@ -40,22 +54,15 @@ vint_read(int fd, struct vint *vint)
 unsigned long
 vint_value(struct vint vint)
 {
-	unsigned long result = 0;
-
-	if (vint.size > sizeof result)
+	if (vint.size > sizeof(unsigned long))
 		abort();
-
-	for (unsigned i = 0; i < vint.size; i++)
-		result = (result << 8) | vint.data[i];
-	result &= ~(1UL << (7 * vint.size));
-	return result;
+	return vint.raw & ~(UINT64_C(1) << (7 * vint.size));
 }
 
 int
 ebml_id_eq(uint32_t id, struct vint vint_id)
 {
 	unsigned int markpos;
-	uint32_t packed;
 
 	if (id == EBML_ANY_ELEMENT)
 		return 1;
@@ -67,10 +74,7 @@ ebml_id_eq(uint32_t id, struct vint vint_id)
 	if (markpos + 1 != vint_id.size)
 		return 0;
 
-	packed = 0;
-	for (unsigned i = 0; i < vint_id.size; i++)
-		packed = (packed << 8) | vint_id.data[i];
-	return packed == id;
+	return (uint32_t) vint_id.raw == id;
 }
 
 off_t
@@ -100,9 +104,7 @@ ebml_peek(int fd)
 	if (!vint_read(fd, &id) || id.size > sizeof res)
 		goto end;
 
-	res = 0;
-	for (unsigned i = 0; i < id.size; i++)
-		res = (res << 8) | id.data[i];
+	res = (uint_least32_t) id.raw;
 
 end:
 	seek(fd, begin);
@@ -129,22 +131,16 @@ ebml_readsint(int fd, uint_least32_t expected_id, int64_t *dest)
 {
 	struct vint id, l;
 	unsigned long len;
-	uint64_t val = 0;
-	uint8_t byte;
+	uint64_t val;
 	off_t begin;
 
 	begin = pos(fd);
 	if (!(   vint_read(fd, &id)
 	      && ebml_id_eq(expected_id, id)
 	      && vint_read(fd, &l))
-	||  (len = vint_value(l)) > sizeof *dest)
+	||  (len = vint_value(l)) > sizeof *dest
+	||  !read_be(fd, &val, len))
 		return seek(fd, begin), 0;
-
-	for (unsigned long i = 0; i < len; i++) {
-		if (read(fd, &byte, 1) != 1)
-			return seek(fd, begin), 0;
-		val = (val << 8) | byte;
-	}
 
 	switch (len) {
 	case 0: *dest = 0;             break;
@@ -168,22 +164,16 @@ ebml_readuint(int fd, uint_least32_t expected_id, uint64_t *dest)
 {
 	struct vint id, l;
 	unsigned long len;
-	uint64_t val = 0;
-	uint8_t byte;
+	uint64_t val;
 	off_t begin;
 
 	begin = pos(fd);
 	if (!(   vint_read(fd, &id)
 	      && ebml_id_eq(expected_id, id)
 	      && vint_read(fd, &l))
-	|| (len = vint_value(l)) > sizeof *dest)
+	|| (len = vint_value(l)) > sizeof *dest
+	|| !read_be(fd, &val, len))
 		return seek(fd, begin), 0;
-
-	for (unsigned long i = 0; i < len; i++) {
-		if (read(fd, &byte, 1) != 1)
-			return seek(fd, begin), 0;
-		val = (val << 8) | byte;
-	}
 
 	*dest = val;
 	return 1;
@@ -203,26 +193,20 @@ ebml_readfloat(int fd, uint_least32_t expected_id, double *dest)
 
 	switch (vint_value(len)) {
 	case 8: {
-		uint64_t tmp = 0;
-		uint8_t byte;
-		for (int i = 0; i < 8; i++) {
-			if (read(fd, &byte, 1) != 1)
-				goto err;
-			tmp = (tmp << 8) | byte;
-		}
+		uint64_t tmp;
+		if (!read_be(fd, &tmp, 8))
+			goto err;
 		memcpy(dest, &tmp, 8);
 		break;
 	}
 	case 4: {
-		uint32_t tmp = 0;
-		uint8_t byte;
+		uint64_t tmp;
+		uint32_t tmp32;
 		float f;
-		for (int i = 0; i < 4; i++) {
-			if (read(fd, &byte, 1) != 1)
-				goto err;
-			tmp = (tmp << 8) | byte;
-		}
-		memcpy(&f, &tmp, 4);
+		if (!read_be(fd, &tmp, 4))
+			goto err;
+		tmp32 = (uint32_t) tmp;
+		memcpy(&f, &tmp32, sizeof f);
 		*dest = f;
 		break;
 	}

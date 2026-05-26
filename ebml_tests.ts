@@ -33,29 +33,29 @@ fd_teardown(void)
 #tcase vint_read
 
 struct {
-	size_t size;
-	uint8_t data[VINT_OCTET_MAX];
+	uint8_t  size;
+	uint64_t raw;
+	uint8_t  bytes[VINT_OCTET_MAX]; /* Wire bytes written to fd. */
 } test_vint_cases[] = {
-	{ 1, { 1 << 7 | 1 } },
-	{ 3, { 1 << 5, 0, 1 } },
-	{ 4, { 0x1a, 0x45, 0xdf, 0xa3 } },
-	{ 2, { 0x53, 0x78 } },
+	{ 1, 0x81,       { 0x81 } },
+	{ 3, 0x200001,   { 0x20, 0x00, 0x01 } },
+	{ 4, 0x1a45dfa3, { 0x1a, 0x45, 0xdf, 0xa3 } },
+	{ 2, 0x5378,     { 0x53, 0x78 } },
 };
 
 #test-loop(0, 4) vint_read_reads_from_fd
 	struct vint vint;
-	unsigned int i;
 
-	uint8_t (* data)[VINT_OCTET_MAX] = &test_vint_cases[_i].data;
-	size_t expected_size = test_vint_cases[_i].size;
+	uint8_t (* bytes)[VINT_OCTET_MAX] = &test_vint_cases[_i].bytes;
+	uint8_t  expected_size            = test_vint_cases[_i].size;
+	uint64_t expected_raw             = test_vint_cases[_i].raw;
 
-	write(fd, *data, VINT_OCTET_MAX);
+	write(fd, *bytes, VINT_OCTET_MAX);
 	lseek(fd, 0, SEEK_SET);
 
 	ck_assert(vint_read(fd, &vint));
 	ck_assert_int_eq(vint.size, expected_size);
-	for (i = 0; i < vint.size; i += 1)
-		ck_assert_int_eq(vint.data[i], (*data)[i]);
+	ck_assert_int_eq(vint.raw, expected_raw);
 
 #test vint_read_fails_on_eof
 	/* 0x40 = 0100 0000: marker at bit 6 means a 2-byte VINT, but the fd
@@ -74,10 +74,10 @@ struct {
 	struct vint vint;
 	long expect;
 } test_value_returns_correct_value_cases[] = {
-       /* vint                              expect */
-	{ { 1, { 1 << 7 | 5,            }}, 5 },
-	{ { 2, { 1 << 6,     5          }}, 5 },
-	{ { 5, { 1 << 3,     0, 0, 0, 4 }}, 4 },
+       /* vint                            expect */
+	{ { 1, 0x85                    }, 5 },
+	{ { 2, 0x4005                  }, 5 },
+	{ { 5, UINT64_C(0x0800000004)  }, 4 },
 };
 
 #test-loop(0, 3) vint_value_returns_correct_value
@@ -86,7 +86,7 @@ struct {
 	ck_assert_int_eq(vint_value(vint), expect);
 
 #test-signal(6) vint_value_aborts_on_too_big
-	struct vint vint = { sizeof(long) + 1, { 0 }};
+	struct vint vint = { sizeof(long) + 1, 0 };
 	vint_value(vint);
 
 #tcase ebml_id_eq
@@ -96,15 +96,15 @@ struct {
 	uint_least32_t id;
 	struct vint vint;
 } ebml_id_eq_cases[] = {
-	{ 1, 0x18538067, { 4, { 0x18, 0x53, 0x80, 0x67 } } },
-	{ 1, 0x7373,     { 2, {             0x73, 0x73 } } },
-	{ 1, EAL,        { 4, { 0x18, 0x53, 0x80, 0x67 } } },
-	{ 1, EAL,        { 1, {                 1 << 7 } } },
-	{ 0, 0x18538067, { 4, { 0x18, 0x53, 0x81, 0x67 } } },
-	{ 0, 0,          { 4, { 0x18, 0x53, 0x81, 0x67 } } },
-	{ 0, 0,          { 1, {                 1 << 7 } } },
-	{ 0, 0x73c5,     { 3, { 1 << 5 | 2, 0x73, 0xc5 } } }, /* Extra padding. */
-	{ 0, 0x73c5,     { 1, {                   0xc5 } } }, /* Too small. */
+	{ 1, 0x18538067, { 4, 0x18538067 } },
+	{ 1, 0x7373,     { 2, 0x7373     } },
+	{ 1, EAL,        { 4, 0x18538067 } },
+	{ 1, EAL,        { 1, 0x80       } },
+	{ 0, 0x18538067, { 4, 0x18538167 } },
+	{ 0, 0,          { 4, 0x18538167 } },
+	{ 0, 0,          { 1, 0x80       } },
+	{ 0, 0x73c5,     { 3, 0x2273c5   } }, /* Extra padding. */
+	{ 0, 0x73c5,     { 1, 0xc5       } }, /* Too small. */
 };
 
 #test-loop(0, 9) ebml_id_eq_tests
