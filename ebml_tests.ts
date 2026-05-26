@@ -376,6 +376,83 @@ struct {
 	ck_assert(!ebml_readuint(fd, 0x82, &num));
 	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), 0);
 
+#test ebml_readuint_u32_reads_value
+	/* Reads a value that fits in uint32_t. */
+	uint8_t data[] = { 0xfb, 1 << 7 | 4, 0x00, 0x01, 0xe2, 0x40 }; /* value = 123456 */
+	uint32_t num;
+
+	write(fd, data, sizeof(data));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(ebml_readuint(fd, 0xfb, &num));
+	ck_assert_uint_eq(num, 123456u);
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), (int)sizeof(data));
+
+#test ebml_readuint_u32_rejects_overflow
+	/* Value 0x1_0000_0000 > UINT32_MAX; must fail and seek back. */
+	uint8_t data[] = { 0xfb, 1 << 7 | 8, 0, 0, 0, 1, 0, 0, 0, 0 };
+	uint32_t num;
+
+	write(fd, data, sizeof(data));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(!ebml_readuint(fd, 0xfb, &num));
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), 0);
+
+#test ebml_readuint_u8_reads_value
+	/* Reads a value that fits in uint8_t. */
+	uint8_t data[] = { 0xfb, 1 << 7 | 1, 0xff }; /* value = 255 */
+	uint8_t num;
+
+	write(fd, data, sizeof(data));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(ebml_readuint(fd, 0xfb, &num));
+	ck_assert_uint_eq(num, 255u);
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), (int)sizeof(data));
+
+#test ebml_readuint_u8_rejects_overflow
+	/* Value 256 > UINT8_MAX; must fail and seek back. */
+	uint8_t data[] = { 0xfb, 1 << 7 | 2, 0x01, 0x00 };
+	uint8_t num;
+
+	write(fd, data, sizeof(data));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(!ebml_readuint(fd, 0xfb, &num));
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), 0);
+
+#test ebml_readuint_bool_reads_false
+	uint8_t data[] = { 0xfb, 1 << 7 | 1, 0 };
+	bool flag = true; /* sentinel */
+
+	write(fd, data, sizeof(data));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(ebml_readuint(fd, 0xfb, &flag));
+	ck_assert(!flag);
+
+#test ebml_readuint_bool_reads_true
+	uint8_t data[] = { 0xfb, 1 << 7 | 1, 1 };
+	bool flag = false; /* sentinel */
+
+	write(fd, data, sizeof(data));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(ebml_readuint(fd, 0xfb, &flag));
+	ck_assert(flag);
+
+#test ebml_readuint_bool_rejects_nonboolean
+	/* Value 2 is not a valid boolean; must fail and seek back. */
+	uint8_t data[] = { 0xfb, 1 << 7 | 1, 2 };
+	bool flag;
+
+	write(fd, data, sizeof(data));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(!ebml_readuint(fd, 0xfb, &flag));
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), 0);
+
 #tcase ebml_readfloat
 
 struct {

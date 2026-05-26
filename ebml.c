@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include "utils.h" /* pos, seek. */
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -179,22 +180,64 @@ ebml_readsint(int fd, uint_least32_t expected_id, int64_t *dest)
 	return 1;
 }
 
-int
-ebml_readuint(int fd, uint_least32_t expected_id, uint64_t *dest)
+[[gnu::fd_arg_read(1)]]
+static int
+ebml_readuint_raw(int fd, uint_least32_t expected_id, off_t *begin, uint64_t *val)
 {
 	struct vint id, l;
-	uint64_t len, val;
-	off_t begin;
+	uint64_t len;
 
-	begin = pos(fd);
+	*begin = pos(fd);
 	if (!(   vint_read(fd, &id)
 	      && ebml_id_eq(expected_id, id)
 	      && vint_read(fd, &l))
-	|| (len = vint_value(l)) > sizeof *dest
-	|| !read_be(fd, &val, len))
-		return seek(fd, begin), 0;
+	|| (len = vint_value(l)) > sizeof(uint64_t)
+	|| !read_be(fd, val, len))
+		return seek(fd, *begin), 0;
 
-	*dest = val;
+	return 1;
+}
+
+int
+_ebml_readuint_u64(int fd, uint_least32_t id, uint64_t *dest)
+{
+	off_t begin;
+	return ebml_readuint_raw(fd, id, &begin, dest);
+}
+
+int
+_ebml_readuint_u32(int fd, uint_least32_t id, uint32_t *dest)
+{
+	off_t begin;
+	uint64_t val;
+
+	if (!ebml_readuint_raw(fd, id, &begin, &val) || val > UINT32_MAX)
+		return seek(fd, begin), 0;
+	*dest = (uint32_t) val;
+	return 1;
+}
+
+int
+_ebml_readuint_u8(int fd, uint_least32_t id, uint8_t *dest)
+{
+	off_t begin;
+	uint64_t val;
+
+	if (!ebml_readuint_raw(fd, id, &begin, &val) || val > UINT8_MAX)
+		return seek(fd, begin), 0;
+	*dest = (uint8_t) val;
+	return 1;
+}
+
+int
+_ebml_readuint_bool(int fd, uint_least32_t id, bool *dest)
+{
+	off_t begin;
+	uint64_t val;
+
+	if (!ebml_readuint_raw(fd, id, &begin, &val) || val > 1)
+		return seek(fd, begin), 0;
+	*dest = (bool) val;
 	return 1;
 }
 
