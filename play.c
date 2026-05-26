@@ -245,11 +245,6 @@ handle_alsa(struct state *s)
 		s->play.pending = (size_t) sz - n;
 	}
 
-	if (s->play.done) {
-		snd_pcm_drain(s->pcm);
-		s->run = false;
-	}
-
 	/* TODO Maybe avoid state, use `snd_pcm_mmap_commit_partial` instead? */
 	res = snd_pcm_mmap_commit(s->pcm, off, snd_pcm_bytes_to_frames(s->pcm, buf.n));
 	if (res != snd_pcm_bytes_to_frames(s->pcm, buf.n))
@@ -259,6 +254,11 @@ handle_alsa(struct state *s)
 	   https://github.com/alsa-project/alsa-lib/commit/bd53892 */
 	if (snd_pcm_state(s->pcm) == SND_PCM_STATE_PREPARED) {
 		SND_WARN(== 0, pcm_start, s->pcm);
+	}
+
+	if (s->play.done) {
+		snd_pcm_drain(s->pcm);
+		s->run = false;
 	}
 
 	return true;
