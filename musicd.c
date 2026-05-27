@@ -353,8 +353,12 @@ main(int argc, char *argv[])
 						args[nargs++] = tok;
 						tok = strtok(nullptr, " ");
 					}
-					if (nargs > 0)
+					if (nargs > 0) {
+					if (strcmp(args[0], "list") == 0)
+						cmd_list(newstate, client->fd);
+					else
 						newstate = cmd(newstate, nargs, args);
+				}
 
 					start = nl + 1;
 				}

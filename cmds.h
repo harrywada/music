@@ -17,3 +17,5 @@ CMD_DECL(skip);
 CMD_DECL(stop);
 CMD_DECL(toggle);
 #undef CMD_DECL
+
+void cmd_list(struct state, int);

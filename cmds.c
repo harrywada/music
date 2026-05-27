@@ -1,5 +1,7 @@
+#include <stdio.h>  /* snprintf(3). */
 #include <stdlib.h> /* strtol(3). */
-#include <string.h> /* strcmp(3). */
+#include <string.h> /* strcmp(3), strlen(3). */
+#include <unistd.h> /* write(2). */
 
 #include "cmds.h"
 #include "song.h"
@@ -141,4 +143,18 @@ cmd_toggle(                struct state s,
 	else if (s.play == PAUSED)
 		s.play = PLAYING;
 	return s;
+}
+
+void
+cmd_list(struct state s, int fd)
+{
+	for (unsigned int i = s.queue.head; i != s.queue.tail; i++) {
+		const struct song *song = &s.queue.data[i % s.queue.size];
+		char uid_line[23]; /* "#" + ULONG_MAX digits + "\n\0" */
+		int n = snprintf(uid_line, sizeof uid_line,
+		                 "#%lu\n", song->uid);
+		(void) write(fd, song->path, strlen(song->path));
+		if (n > 0)
+			(void) write(fd, uid_line, (size_t) n);
+	}
 }

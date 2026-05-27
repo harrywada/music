@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <unistd.h>
 #include "cmds.h"
 #include "state.h"
 
@@ -183,3 +184,73 @@ const struct {
 	struct state s = { .play = cmd_toggle_cases[_i].in };
 	auto r = cmd_toggle(s, 0, nullptr);
 	ck_assert_int_eq(r.play, cmd_toggle_cases[_i].out);
+
+#tcase cmd_list
+
+#test cmd_list_empty_outputs_nothing
+	struct state s;
+	ck_assert(mkstate(&s));
+	int pfd[2];
+	ck_assert_int_eq(pipe(pfd), 0);
+	cmd_list(s, pfd[1]);
+	close(pfd[1]);
+	char buf[1] = { 0 };
+	ssize_t nr = read(pfd[0], buf, sizeof buf);
+	close(pfd[0]);
+	ck_assert(nr == 0);
+	cleanup_state(&s);
+
+#test cmd_list_outputs_path_and_uid
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *args[] = { "/music/a.mka#42", nullptr };
+	s = cmd_queue(s, 1, args);
+	int pfd[2];
+	ck_assert_int_eq(pipe(pfd), 0);
+	cmd_list(s, pfd[1]);
+	close(pfd[1]);
+	char buf[64] = { 0 };
+	ssize_t nr = read(pfd[0], buf, sizeof buf - 1);
+	close(pfd[0]);
+	ck_assert(nr > 0);
+	ck_assert_str_eq(buf, "/music/a.mka#42\n");
+	cleanup_state(&s);
+
+#test cmd_list_outputs_all_songs_in_order
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *qa[] = { "/a.mka#1", nullptr };
+	const char *qb[] = { "/b.mka#2", nullptr };
+	const char *qc[] = { "/c.mka#3", nullptr };
+	s = cmd_queue(s, 1, qa);
+	s = cmd_queue(s, 1, qb);
+	s = cmd_queue(s, 1, qc);
+	int pfd[2];
+	ck_assert_int_eq(pipe(pfd), 0);
+	cmd_list(s, pfd[1]);
+	close(pfd[1]);
+	char buf[128] = { 0 };
+	ssize_t nr = read(pfd[0], buf, sizeof buf - 1);
+	close(pfd[0]);
+	ck_assert(nr > 0);
+	ck_assert_str_eq(buf, "/a.mka#1\n/b.mka#2\n/c.mka#3\n");
+	cleanup_state(&s);
+
+#test cmd_list_reflects_skip
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *qa[] = { "/a.mka#1", nullptr };
+	const char *qb[] = { "/b.mka#2", nullptr };
+	s = cmd_queue(s, 1, qa);
+	s = cmd_queue(s, 1, qb);
+	s = cmd_skip(s, 0, nullptr);
+	int pfd[2];
+	ck_assert_int_eq(pipe(pfd), 0);
+	cmd_list(s, pfd[1]);
+	close(pfd[1]);
+	char buf[64] = { 0 };
+	ssize_t nr = read(pfd[0], buf, sizeof buf - 1);
+	close(pfd[0]);
+	ck_assert(nr > 0);
+	ck_assert_str_eq(buf, "/b.mka#2\n");
+	cleanup_state(&s);
