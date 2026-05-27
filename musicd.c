@@ -12,6 +12,7 @@
 #include <unistd.h>      /* close(2p), read(2). */
 
 #include "cmds.h"
+#include "mpris.h"
 #include "queue.h"
 #include "state.h"
 #include "utils.h"
@@ -49,6 +50,12 @@ static pid_t player_pid;
 
 static bool effect(const struct state, const struct state);
 
+static void
+cleanup_mpris(struct mpris **m)
+{
+	mpris_close(*m);
+}
+
 [[gnu::nonnull(1)]]
 static int mksocket(const char *);
 
@@ -62,6 +69,7 @@ cleanup_fds(struct fds *fds)
 		unlink(fds->sockpath);
 
 	for (unsigned int i = 0; i < fds->n; i++) {
+		if (i == FD_MPRIS) continue; /* fd owned by sd-bus */
 		if (fds->fds[i].fd >= 0)
 			close(fds->fds[i].fd);
 	}
@@ -245,10 +253,22 @@ main(int argc, char *argv[])
 	fds.fds[FD_MPRIS].fd     = -1; /* poll(2) ignores negative fds. */
 	fds.fds[FD_MPRIS].events = 0;
 
+	[[gnu::cleanup(cleanup_mpris)]]
+	struct mpris *mpris = mpris_open();
+	if (mpris) {
+		fds.fds[FD_MPRIS].fd     = mpris_fd(mpris);
+		fds.fds[FD_MPRIS].events = mpris_events(mpris);
+	}
+
 	player_pid = -1;
 
-	while (state.mode != EXITING
-	    && (fds.ready = poll(fds.fds, FD_END + fds.nclients, -1)) != -1) {
+	while (state.mode != EXITING) {
+		if (mpris)
+			fds.fds[FD_MPRIS].events = mpris_events(mpris);
+		fds.ready = poll(fds.fds, FD_END + fds.nclients, -1);
+		if (fds.ready == -1)
+			break;
+
 		struct state newstate = state;
 
 		/* New client connection. */
@@ -354,7 +374,19 @@ main(int argc, char *argv[])
 next_client:;
 		}
 
+		/* MPRIS method calls. */
+		if (mpris && (fds.fds[FD_MPRIS].revents & (POLLIN | POLLOUT))) {
+			int r;
+			while ((r = mpris_process(mpris, &newstate)) > 0)
+				;
+			if (r < 0)
+				debug(-r, "mpris_process");
+		}
+
+		struct state prev = state;
 		if (effect(state, newstate))
 			state = newstate;
+		if (mpris)
+			mpris_notify(mpris, prev, state);
 	}
 }

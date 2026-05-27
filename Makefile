@@ -10,7 +10,9 @@ CFLAGS += -std=c23 -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200809L -DPLAY_PATH=\"./pla
 
 play: LDFLAGS += -lasound
 play: play.c ebml.o matroska.o utils.o
-musicd: musicd.c cmds.o state.o queue.o song.o utils.o
+musicd: musicd.c cmds.o state.o queue.o song.o utils.o mpris.o matroska.o ebml.o
+musicd: CFLAGS  += -isystem /usr/include/elogind
+musicd: LDFLAGS += -lelogind
 sq: sq.c ebml.o matroska.o song.o utils.o
 sf: sf.c filter.o ebml.o matroska.o song.o utils.o
 sc: sc.c utils.o
