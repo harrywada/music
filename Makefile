@@ -9,7 +9,7 @@ CFLAGS += -std=c23 -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200112L -DPLAY_PATH=\"./pla
           -DVINT_OCTET_MAX="$(VINT_OCTET_MAX)"
 
 LDFLAGS += -lasound
-play: play.c ebml.o matroska.o utils.o utils_le.o
+play: play.c ebml.o matroska.o utils.o
 musicd: musicd.c cmds.o state.o queue.o song.o utils.o
 
 .SUFFIXES: _tests.ts _tests.c
@@ -18,12 +18,11 @@ _tests.ts_tests.c:
 
 LDFLAGS += -lcheck
 cmds_tests: cmds_tests.c cmds.o state.o queue.o song.o utils.o
-ebml_tests: ebml_tests.c ebml.o utils.o utils_le.o
-matroska_tests: matroska_tests.c matroska.o ebml.o utils.o utils_le.o
+ebml_tests: ebml_tests.c ebml.o utils.o
+matroska_tests: matroska_tests.c matroska.o ebml.o utils.o
 queue_tests: queue_tests.c queue.o song.o utils.o
 song_tests: song_tests.c song.o utils.o
 utils_tests: utils_tests.c utils.o
-utils_le_tests: utils_le_tests.c utils_le.o
 
 .PHONY: clean
 clean:

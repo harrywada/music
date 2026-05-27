@@ -13,9 +13,6 @@
 #include "utils.h"
 
 #include <stddef.h>
-#include "utils_le.h" /* rev_octets. */
-
-#include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
 #include <time.h>

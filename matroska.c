@@ -12,9 +12,6 @@
 #include <sys/types.h>
 #include "utils.h"
 
-#include <stddef.h>
-#include "utils_le.h"
-
 int
 mkv_readseekinfo(int fd, struct mkv_seekinfo *sk_info)
 {

@@ -1,6 +1,7 @@
 *.o
 
 # Binaries
+musicd
 play
 
 # Tests

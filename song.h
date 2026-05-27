@@ -1,3 +1,5 @@
+#pragma once
+
 struct song {
 	char *path;
 	unsigned long uid;
