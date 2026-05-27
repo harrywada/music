@@ -15,6 +15,8 @@ cmd(struct state s, unsigned int argc, const char *args[])
 	if (strcmp(args[0], #cmd) == 0) \
 		return cmd_ ## cmd(s, argc - 1, &args[1])
 	DO(exit);
+	DO(loop);
+	DO(consume);
 	DO(queue);
 	DO(pause);
 	DO(play);
@@ -34,6 +36,24 @@ cmd_exit(                struct state s,
          [[gnu::unused]] const char *args[])
 {
 	s.mode = EXITING;
+	return s;
+}
+
+struct state
+cmd_loop(                struct state s,
+         [[gnu::unused]] unsigned int argc,
+         [[gnu::unused]] const char *args[])
+{
+	s.mode = LOOP;
+	return s;
+}
+
+struct state
+cmd_consume(                struct state s,
+            [[gnu::unused]] unsigned int argc,
+            [[gnu::unused]] const char *args[])
+{
+	s.mode = CONSUME;
 	return s;
 }
 
@@ -144,6 +164,27 @@ cmd_toggle(                struct state s,
 	else if (s.play == PAUSED)
 		s.play = PLAYING;
 	return s;
+}
+
+void
+cmd_status(struct state s, int fd)
+{
+	static const char *const ps[] = {
+		[PLAYING] = "playing",
+		[PAUSED]  = "paused",
+		[STOPPED] = "stopped",
+	};
+	static const char *const ms[] = {
+		[CONSUME] = "consume",
+		[EXITING] = "exiting",
+		[LOOP]    = "loop",
+		[SHUFFLE] = "shuffle",
+	};
+	char buf[64];
+	int n = snprintf(buf, sizeof buf, "state: %s\nmode: %s\n",
+	                 ps[s.play], ms[s.mode]);
+	if (n > 0)
+		(void) write(fd, buf, (size_t) n);
 }
 
 void

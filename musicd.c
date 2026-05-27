@@ -333,8 +333,13 @@ main(int argc, char *argv[])
 					if (nargs > 0) {
 					if (strcmp(args[0], "list") == 0)
 						cmd_list(newstate, client->fd);
+					else if (strcmp(args[0], "status") == 0)
+						cmd_status(newstate, client->fd);
 					else
 						newstate = cmd(newstate, nargs, args);
+					close(client->fd);
+					remove_client(&fds, i);
+					goto next_client;
 				}
 
 					start = nl + 1;
@@ -347,6 +352,7 @@ main(int argc, char *argv[])
 			}
 
 			i++;
+next_client:;
 		}
 
 		if (effect(state, newstate))
