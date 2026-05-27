@@ -254,7 +254,7 @@ main(int argc, char *argv[])
 	fds.fds[FD_MPRIS].events = 0;
 
 	[[gnu::cleanup(cleanup_mpris)]]
-	struct mpris *mpris = mpris_open();
+	struct mpris *mpris = mpris_open(state);
 	if (mpris) {
 		fds.fds[FD_MPRIS].fd     = mpris_fd(mpris);
 		fds.fds[FD_MPRIS].events = mpris_events(mpris);

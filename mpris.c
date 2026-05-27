@@ -455,13 +455,14 @@ static const sd_bus_vtable mpris_player_vtable[] = {
 /* Public API                                                           */
 
 struct mpris *
-mpris_open(void)
+mpris_open(struct state initial)
 {
 	struct mpris *m = calloc(1, sizeof *m);
 	if (!m) {
 		debug(errno, "mpris_open");
 		return nullptr;
 	}
+	m->state = initial;
 
 	int r = sd_bus_open_user(&m->bus);
 	if (r < 0) {
