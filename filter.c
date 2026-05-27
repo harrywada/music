@@ -8,6 +8,7 @@
 #include <strings.h> /* strcasecmp(3). */
 #include <sys/types.h>
 #include "ebml.h"
+#include "matroska.h"
 #include "filter.h"
 
 /* ── Token cursor ──────────────────────────────────────── */

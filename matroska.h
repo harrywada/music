@@ -54,7 +54,7 @@
 #define MKV_TARGETS         0x63c0
 #define MKV_TARGETTYPEVALUE 0x68ca
 #define MKV_TAGTRACKUID     0x63c5
-#define MKV_TAGCHAPTERUID   0x63c6
+#define MKV_TAGCHAPTERUID   0x63c4
 #define MKV_SIMPLETAG       0x67c8
 #define MKV_TAGNAME         0x45a3
 #define MKV_TAGSTRING       0x4487

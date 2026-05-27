@@ -726,7 +726,7 @@ mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
 			/* Read Targets. */
 			uint32_t target_type = 50;
 			bool has_any_chapter = false, has_matching_chapter = false;
-			bool has_any_track   = false, has_matching_track   = false;
+			bool has_matching_track = false;
 
 			if (ebml_peek(fd) == MKV_TARGETS) {
 				off_t targets_end;
@@ -749,9 +749,8 @@ mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
 						break;
 					case MKV_TAGTRACKUID:
 						if (ebml_readuint(fd, MKV_TAGTRACKUID, &tmp)) {
-							has_any_track = true;
 							if (tmp == track_uid)
-								has_matching_track = true;
+							has_matching_track = true;
 						}
 						break;
 					default:
@@ -761,20 +760,27 @@ mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
 				}
 			}
 
-			/* Determine scope. */
+			/* Determine scope.
+			 *
+			 * Chapter UIDs are specific (they identify an
+			 * individual song): skip any Tag whose chapter UIDs
+			 * are all for other chapters.
+			 *
+			 * Track UIDs, however, identify the audio track that
+			 * carries all songs in the container.  Files that
+			 * have been remuxed often end up with a TagTrackUID
+			 * that no longer matches the TrackUID in the Tracks
+			 * element.  Fall back to TargetTypeValue in that
+			 * case rather than silently discarding the tag. */
 			int scope;
 			if (has_matching_chapter) {
 				scope = SCOPE_CHAPTER;
 			} else if (has_any_chapter) {
-				/* Has chapter UIDs but none match — skip. */
+				/* Chapter UIDs present but none match — skip. */
 				seek(fd, tag_end);
 				continue;
 			} else if (has_matching_track) {
 				scope = SCOPE_TRACK;
-			} else if (has_any_track) {
-				/* Has track UIDs but none match — skip. */
-				seek(fd, tag_end);
-				continue;
 			} else if (target_type == 30) {
 				scope = SCOPE_TRACK;
 			} else if (target_type == 50) {
