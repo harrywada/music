@@ -39,12 +39,18 @@ main(int argc, char *argv[])
 		} else if (!command) {
 			command = argv[i];
 		} else {
-			fprintf(stderr, "Usage: sc -s <socket-path> <command>\n");
+			fprintf(stderr,
+			    "Usage: sc -s <socket-path> <command>\n"
+			    "Commands: exit list loop consume pause play skip"
+			    " stop toggle status\n");
 			return 1;
 		}
 	}
 	if (!sockpath || !command) {
-		fprintf(stderr, "Usage: sc -s <socket-path> <command>\n");
+		fprintf(stderr,
+		    "Usage: sc -s <socket-path> <command>\n"
+		    "Commands: exit list loop consume pause play skip"
+		    " stop toggle status\n");
 		return 1;
 	}
 
