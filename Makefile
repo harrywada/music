@@ -2,7 +2,7 @@
 TRACKS_MAX = 4
 VINT_OCTET_MAX = 8
 
-CFLAGS += -std=c23 -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200112L \
+CFLAGS += -std=c23 -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200112L -DPLAY_PATH=\"./play\" \
           -Wall -Wextra -Werror -Wno-empty-body \
           -isystem /usr/include/alsa/ \
           -DTRACKS_MAX="$(TRACKS_MAX)" \
@@ -10,14 +10,14 @@ CFLAGS += -std=c23 -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200112L \
 
 LDFLAGS += -lasound
 play: play.c ebml.o matroska.o utils.o utils_le.o
-musicd: musicd.c ebml.o matroska.o utils.o
+musicd: musicd.c cmds.o state.o queue.o song.o utils.o
 
 .SUFFIXES: _tests.ts _tests.c
 _tests.ts_tests.c:
 	checkmk $< >$@
 
 LDFLAGS += -lcheck
-cmds_tests: cmds_tests.c cmds.o state.o
+cmds_tests: cmds_tests.c cmds.o state.o queue.o song.o utils.o
 ebml_tests: ebml_tests.c ebml.o utils.o utils_le.o
 matroska_tests: matroska_tests.c matroska.o ebml.o utils.o utils_le.o
 queue_tests: queue_tests.c queue.o song.o utils.o
