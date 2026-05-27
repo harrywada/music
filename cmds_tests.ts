@@ -1,0 +1,185 @@
+#include <stdlib.h>
+#include "cmds.h"
+#include "state.h"
+
+#suite cmds
+
+#tcase cmd_exit
+
+const struct {
+	struct state s1, s2;
+	unsigned int argc;
+	const char **argv;
+} cmd_exit_works_cases[] = {
+	{ .s1 = { .mode = LOOP },    .s2 = { .mode = EXITING }, .argc = 0 },
+	{ .s1 = { .mode = EXITING }, .s2 = { .mode = EXITING }, .argc = 0 },
+	{ .s1 = { .mode = CONSUME }, .s2 = { .mode = EXITING },
+	  .argc = 1,
+	  .argv = (const char **) (const char *[]) { "exit", nullptr } },
+};
+
+#test-loop(0, 3) cmd_exit_works
+	auto s1 = cmd_exit_works_cases[_i].s1;
+	auto s2 = cmd_exit_works_cases[_i].s2;
+	auto argc = cmd_exit_works_cases[_i].argc;
+	const char **argv = cmd_exit_works_cases[_i].argv;
+	auto s = cmd_exit(s1, argc, argv);
+	ck_assert_int_eq(s.mode, s2.mode);
+
+#tcase cmd_queue
+
+#test cmd_queue_pushes_song
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *args[] = { "/a/b.mka#123", nullptr };
+	s = cmd_queue(s, 1, args);
+	ck_assert_uint_eq(qsize(s.queue), 1);
+	cleanup_state(&s);
+
+#test cmd_queue_ignores_wrong_argc
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *args0[] = { nullptr };
+	struct state r0 = cmd_queue(s, 0, args0);
+	ck_assert_uint_eq(qsize(r0.queue), 0);
+	const char *args2[] = { "/a/b.mka#123", "extra", nullptr };
+	struct state r2 = cmd_queue(s, 2, args2);
+	ck_assert_uint_eq(qsize(r2.queue), 0);
+	/* r0, r2, and s all share the same queue.data — clean up once. */
+	cleanup_state(&s);
+
+#test cmd_queue_ignores_malformed_song
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *args[] = { "/a/b.mka", nullptr }; /* Missing #uid. */
+	struct state r = cmd_queue(s, 1, args);
+	ck_assert_uint_eq(qsize(r.queue), 0);
+	cleanup_state(&s);
+
+#tcase cmd_pause
+
+#test cmd_pause_sets_paused
+	struct state s = { .play = PLAYING };
+	auto r = cmd_pause(s, 0, nullptr);
+	ck_assert_int_eq(r.play, PAUSED);
+
+#test cmd_pause_is_idempotent
+	struct state s = { .play = PAUSED };
+	auto r = cmd_pause(s, 0, nullptr);
+	ck_assert_int_eq(r.play, PAUSED);
+
+#tcase cmd_play
+
+#test cmd_play_sets_playing_from_stopped
+	struct state s = { .play = STOPPED };
+	auto r = cmd_play(s, 0, nullptr);
+	ck_assert_int_eq(r.play, PLAYING);
+
+#test cmd_play_sets_playing_from_paused
+	struct state s = { .play = PAUSED };
+	auto r = cmd_play(s, 0, nullptr);
+	ck_assert_int_eq(r.play, PLAYING);
+
+#tcase insert
+
+#test cmd_insert_inserts_at_index_zero
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *args[] = { "/a/b.mka#1", "0", nullptr };
+	s = cmd_insert(s, 2, args);
+	ck_assert_uint_eq(qsize(s.queue), 1);
+	cleanup_state(&s);
+
+#test cmd_insert_inserts_at_negative_index
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *args[] = { "/a/b.mka#1", "-1", nullptr };
+	s = cmd_insert(s, 2, args);
+	ck_assert_uint_eq(qsize(s.queue), 1);
+	cleanup_state(&s);
+
+#test cmd_insert_ignores_wrong_argc
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *args1[] = { "/a/b.mka#1", nullptr };
+	struct state r1 = cmd_insert(s, 1, args1);
+	ck_assert_uint_eq(qsize(r1.queue), 0);
+	const char *args0[] = { nullptr };
+	struct state r0 = cmd_insert(s, 0, args0);
+	ck_assert_uint_eq(qsize(r0.queue), 0);
+	cleanup_state(&s);
+
+#test cmd_insert_ignores_malformed_song
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *args[] = { "/a/b.mka", "0", nullptr }; /* Missing #uid. */
+	struct state r = cmd_insert(s, 2, args);
+	ck_assert_uint_eq(qsize(r.queue), 0);
+	cleanup_state(&s);
+
+#tcase skip
+
+#test cmd_skip_pops_queue_stays_playing
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *qa[] = { "/a.mka#1", nullptr };
+	const char *qb[] = { "/b.mka#2", nullptr };
+	s = cmd_queue(s, 1, qa);
+	s = cmd_queue(s, 1, qb);
+	s.play = PLAYING;
+	s = cmd_skip(s, 0, nullptr);
+	ck_assert_uint_eq(qsize(s.queue), 1);
+	ck_assert_int_eq(s.play, PLAYING);
+	cleanup_state(&s);
+
+#test cmd_skip_stops_when_last_song_skipped
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *qa[] = { "/a.mka#1", nullptr };
+	s = cmd_queue(s, 1, qa);
+	s.play = PLAYING;
+	s = cmd_skip(s, 0, nullptr);
+	ck_assert_uint_eq(qsize(s.queue), 0);
+	ck_assert_int_eq(s.play, STOPPED);
+	cleanup_state(&s);
+
+#test cmd_skip_stops_when_queue_empty
+	struct state s;
+	ck_assert(mkstate(&s));
+	s.play = PLAYING;
+	s = cmd_skip(s, 0, nullptr);
+	ck_assert_int_eq(s.play, STOPPED);
+	cleanup_state(&s);
+
+#tcase stop
+
+#test cmd_stop_sets_stopped
+	struct state s = { .play = PLAYING };
+	auto r = cmd_stop(s, 0, nullptr);
+	ck_assert_int_eq(r.play, STOPPED);
+
+#test cmd_stop_preserves_queue
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *qa[] = { "/a.mka#1", nullptr };
+	s = cmd_queue(s, 1, qa);
+	s.play = PLAYING;
+	s = cmd_stop(s, 0, nullptr);
+	ck_assert_int_eq(s.play, STOPPED);
+	ck_assert_uint_eq(qsize(s.queue), 1);
+	cleanup_state(&s);
+
+#tcase toggle
+
+const struct {
+	enum playstate in, out;
+} cmd_toggle_cases[] = {
+	{ PLAYING, PAUSED  },
+	{ PAUSED,  PLAYING },
+	{ STOPPED, STOPPED },
+};
+
+#test-loop(0, 3) cmd_toggle_works
+	struct state s = { .play = cmd_toggle_cases[_i].in };
+	auto r = cmd_toggle(s, 0, nullptr);
+	ck_assert_int_eq(r.play, cmd_toggle_cases[_i].out);
