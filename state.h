@@ -6,7 +6,6 @@ enum mode {
 	CONSUME,
 	EXITING,
 	LOOP,
-	SHUFFLE,
 };
 
 enum playstate {

@@ -283,7 +283,6 @@ main(int argc, char *argv[])
 							newstate.queue = push(newstate.queue, cur);
 							break;
 						}
-						case SHUFFLE:
 						case EXITING:
 							break;
 						}

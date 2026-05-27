@@ -178,7 +178,6 @@ cmd_status(struct state s, int fd)
 		[CONSUME] = "consume",
 		[EXITING] = "exiting",
 		[LOOP]    = "loop",
-		[SHUFFLE] = "shuffle",
 	};
 	char buf[64];
 	int n = snprintf(buf, sizeof buf, "state: %s\nmode: %s\n",
