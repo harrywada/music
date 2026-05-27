@@ -8,7 +8,7 @@
 #include <sys/socket.h>  /* accept(3p), bind(3p), listen(3p), socket(3p). */
 #include <sys/un.h>      /* sockaddr_un. */
 #include <sys/wait.h>    /* waitpid(2). */
-#include <unistd.h>      /* close(2p), readlink(2). */
+#include <unistd.h>      /* close(2p), read(2). */
 
 #include "cmds.h"
 #include "queue.h"
@@ -41,6 +41,7 @@ struct fds {
 	struct pollfd *fds;
 	struct client *clients;
 	unsigned int nclients, client_cap;
+	const char *sockpath;
 };
 
 static pid_t player_pid;
@@ -53,42 +54,11 @@ static int mksocket(const char *);
 [[gnu::nonnull(1)]]
 static void cleanup_fds(struct fds *);
 
-static const char *
-fdpath(int fd)
-{
-	if (fd < 0)
-		return nullptr;
-
-	/* "/proc/self/fd/" + up to 10 decimal digits + NUL */
-	char procpath[__builtin_strlen("/proc/self/fd/") + 11];
-	snprintf(procpath, sizeof procpath, "/proc/self/fd/%d", fd);
-
-	char *path = nullptr;
-	size_t size = 16;
-	ssize_t rl_size;
-	while (true) {
-		path = realloc(path, size);
-		if (!path)
-			die(errno, "realloc");
-		rl_size = readlink(procpath, path, size);
-		if (rl_size == -1)
-			die(errno, "readlink");
-		if ((size_t) rl_size < size)
-			break;
-		size *= 2;
-	}
-	path[rl_size] = '\0';
-	return path;
-}
-
 static void
 cleanup_fds(struct fds *fds)
 {
-	const char *sockpath = fdpath(fds->fds[FD_SOCK].fd);
-	if (sockpath) {
-		unlink(sockpath);
-		free((char *) sockpath);
-	}
+	if (fds->sockpath)
+		unlink(fds->sockpath);
 
 	for (unsigned int i = 0; i < fds->n; i++) {
 		if (fds->fds[i].fd >= 0)
@@ -255,6 +225,7 @@ main(int argc, char *argv[])
 	if (fds.fds[FD_SOCK].fd == -1)
 		die(0, "Can't create socket");
 	fds.fds[FD_SOCK].events = POLLIN;
+	fds.sockpath = argv[1];
 
 	{
 		sigset_t mask;
