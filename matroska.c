@@ -605,15 +605,23 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
 	char  *name = NULL, *value = NULL;
 	size_t name_sz = 0, value_sz = 0;
 	char   name_buf[64];
-	off_t  body_start = pos(fd);
 
-	/* Pass 1: collect TagName. */
-	while (pos(fd) < end) {
-		if (ebml_peek(fd) == MKV_TAGNAME) {
-			ebml_readstring(fd, MKV_TAGNAME, &name, &name_sz);
-			break;
+	/* TagName MUST be first per the Matroska spec; skip the backward
+	   seek for well-formed files.  Fall back to a two-pass approach
+	   only when a non-conformant file places TagName after other
+	   elements. */
+	if (pos(fd) < end && ebml_peek(fd) == MKV_TAGNAME) {
+		ebml_readstring(fd, MKV_TAGNAME, &name, &name_sz);
+	} else {
+		off_t body_start = pos(fd);
+		while (pos(fd) < end) {
+			if (ebml_peek(fd) == MKV_TAGNAME) {
+				ebml_readstring(fd, MKV_TAGNAME, &name, &name_sz);
+				break;
+			}
+			ebml_skip(fd, EBML_ANY_ELEMENT);
 		}
-		ebml_skip(fd, EBML_ANY_ELEMENT);
+		seek(fd, body_start);
 	}
 
 	if (!name || name_sz == 0) {
@@ -621,7 +629,6 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
 		return;
 	}
 
-	/* Null-terminate into stack buffer. */
 	size_t nlen = name_sz < sizeof name_buf - 1 ? name_sz : sizeof name_buf - 1;
 	memcpy(name_buf, name, nlen);
 	name_buf[nlen] = '\0';
@@ -629,8 +636,8 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
 	name = NULL;
 	name_sz = 0;
 
-	/* Pass 2: collect TagString and recurse into nested SimpleTags. */
-	seek(fd, body_start);
+	/* Forward pass: fd is already past TagName in the fast path, or
+	   reset to body_start in the fallback (TagName skipped in switch). */
 	while (pos(fd) < end) {
 		switch (ebml_peek(fd)) {
 		case MKV_TAGNAME:
