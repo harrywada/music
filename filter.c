@@ -182,6 +182,7 @@ parse_pred(struct ctx *ctx)
 	else if (strcmp(field_str, "genre")     == 0) field = TAG_GENRE;
 	else if (strcmp(field_str, "album")     == 0) field = TAG_ALBUM;
 	else if (strcmp(field_str, "track")     == 0) field = TAG_TRACK;
+	else if (strcmp(field_str, "disc")      == 0) field = TAG_DISC;
 	else {
 		fprintf(stderr, "sf: unknown field: %s\n", field_str);
 		*ctx->err = 1;
@@ -205,7 +206,7 @@ parse_pred(struct ctx *ctx)
 
 	/* Type-aware validation. */
 	bool is_date  = (field == TAG_DATE || field == TAG_ORIG_DATE);
-	bool is_track = (field == TAG_TRACK);
+	bool is_numeric = (field == TAG_TRACK || field == TAG_DISC);
 
 	if (is_date) {
 		if (op == FOP_RE) {
@@ -221,15 +222,15 @@ parse_pred(struct ctx *ctx)
 			*ctx->err = 1;
 			return NULL;
 		}
-	} else if (is_track) {
+	} else if (is_numeric) {
 		if (op == FOP_RE) {
-			fprintf(stderr, "sf: `~` not valid for track field\n");
+			fprintf(stderr, "sf: `~` not valid for numeric field\n");
 			*ctx->err = 1;
 			return NULL;
 		}
 		if (!is_int_value(val_str)) {
-			fprintf(stderr, "sf: invalid integer value for track: %s\n",
-			        val_str);
+			fprintf(stderr, "sf: invalid integer value for %s: %s\n",
+			        field_str, val_str);
 			*ctx->err = 1;
 			return NULL;
 		}
@@ -296,6 +297,7 @@ eq_match(const struct filter_node *n, const char *val)
 		/* Prefix match: filter value must be a prefix of song date. */
 		return strncmp(val, fv, strlen(fv)) == 0;
 	case TAG_TRACK:
+	case TAG_DISC:
 		return strtol(val, NULL, 10) == strtol(fv, NULL, 10);
 	default:
 		return strcasecmp(val, fv) == 0;
@@ -326,7 +328,8 @@ cmp_single(const struct filter_node *n, const char *val)
 	case TAG_ORIG_DATE:
 		c = strncmp(val, fv, strlen(fv));
 		break;
-	case TAG_TRACK: {
+	case TAG_TRACK:
+	case TAG_DISC: {
 		long sv  = strtol(val, NULL, 10);
 		long fvl = strtol(fv,  NULL, 10);
 		c = (sv < fvl) ? -1 : (sv > fvl) ? 1 : 0;

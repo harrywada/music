@@ -67,6 +67,7 @@ enum tag_field {
 	TAG_GENRE,
 	TAG_ALBUM,
 	TAG_TRACK,
+	TAG_DISC,  /* PART_NUMBER at TargetTypeValue 60 (EDITION/VOLUME level) */
 	TAG_FIELD_COUNT,
 };
 

@@ -537,6 +537,7 @@ append_tag_value(struct tag_values *tv, const char *s, size_t len)
 #define SCOPE_CHAPTER 0
 #define SCOPE_TRACK   1
 #define SCOPE_ALBUM   2
+#define SCOPE_EDITION 3  /* TargetTypeValue 60 — disc/volume level */
 
 /* Add a (name, value) pair to the correct bucket and field. */
 static void
@@ -566,10 +567,14 @@ add_tag_value(const char *name, const char *value, size_t value_len,
 	} else if (strcasecmp(name, "GENRE") == 0) {
 		field = TAG_GENRE;
 	} else if (strcasecmp(name, "PART_NUMBER") == 0) {
-		field = TAG_TRACK;
+		field = (scope == SCOPE_EDITION) ? TAG_DISC : TAG_TRACK;
 	} else {
 		return;
 	}
+
+	/* Edition-level tags only contribute the disc number. */
+	if (scope == SCOPE_EDITION && field != TAG_DISC)
+		return;
 
 	if (scope == SCOPE_CHAPTER)     tv = &ct->fields[field];
 	else if (scope == SCOPE_TRACK)  tv = &tt->fields[field];
@@ -792,6 +797,8 @@ mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
 				scope = SCOPE_TRACK;
 			} else if (target_type == 50) {
 				scope = SCOPE_ALBUM;
+			} else if (target_type == 60) {
+				scope = SCOPE_EDITION;
 			} else {
 				seek(fd, tag_end);
 				continue;

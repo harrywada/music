@@ -128,6 +128,7 @@ format_compile(const char *fmt)
 			else if (strcmp(name, "genre")     == 0) field = TAG_GENRE;
 			else if (strcmp(name, "album")     == 0) field = TAG_ALBUM;
 			else if (strcmp(name, "track")     == 0) field = TAG_TRACK;
+			else if (strcmp(name, "disc")      == 0) field = TAG_DISC;
 			else {
 				fprintf(stderr, "sp: unknown field: %s\n", name);
 				goto err;
