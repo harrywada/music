@@ -16,7 +16,8 @@ bool parse_song(const char *line, struct song *s)
 	s->path = malloc((end - line + 1) * sizeof(char));
 	if (!s->path)
 		return false;
-	strncpy(s->path, line, end - line);
+	memcpy(s->path, line, end - line);
+	s->path[end - line] = '\0';
 	
 	if (!isdigit(*++end))
 		goto err;
