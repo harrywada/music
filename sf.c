@@ -86,20 +86,27 @@ struct sf_ctx {
 	int                      fd;
 	struct mkv_seekinfo      si;
 	const struct filter_node *filter;
+	bool                     have_track; /* audio track pre-fetched below */
+	struct mkv_track         track;
 };
 
 static int
 sf_chapter_cb(const struct mkv_chapter *ch, void *ud)
 {
-	struct sf_ctx   *ctx  = ud;
+	struct sf_ctx   *ctx = ud;
 	struct mkv_track track;
 	struct song_tags tags = {0};
 	bool print = false;
 
-	if (!ctx->si.tracks) goto done;
-
-	seek(ctx->fd, ctx->si.segment + ctx->si.tracks);
-	if (!mkv_findtrack(ctx->fd, ch->track_uids, &track)) goto done;
+	/* Use the pre-fetched audio track; fall back to per-chapter lookup
+	   only when the file has no cached track (should not normally happen). */
+	if (ctx->have_track) {
+		track = ctx->track;
+	} else {
+		if (!ctx->si.tracks) goto done;
+		seek(ctx->fd, ctx->si.segment + ctx->si.tracks);
+		if (!mkv_findtrack(ctx->fd, ch->track_uids, &track)) goto done;
+	}
 
 	if (ctx->si.tags) {
 		seek(ctx->fd, ctx->si.segment + ctx->si.tags);
@@ -111,7 +118,7 @@ sf_chapter_cb(const struct mkv_chapter *ch, void *ud)
 done:
 	song_tags_free(&tags);
 	if (print)
-		printf("%s#%lu\n", ctx->path, (unsigned long) ch->uid);
+		printf("%s#%lu\n", ctx->path, (unsigned long)ch->uid);
 	return 1;
 }
 
@@ -129,9 +136,18 @@ eval_file(const char *path, const struct filter_node *filter)
 		return;
 	}
 
-	seek(fd, si.segment + si.chapters);
+	/* Pre-fetch the first audio track once; all chapters in a music
+	   container share a single audio track, so this avoids re-reading
+	   the Tracks section for every chapter. */
+	static const uint64_t zero_uids[TRACKS_MAX];
 	struct sf_ctx ctx = { .path = path, .fd = fd, .si = si,
 	                      .filter = filter };
+	if (si.tracks) {
+		seek(fd, si.segment + si.tracks);
+		ctx.have_track = mkv_findtrack(fd, zero_uids, &ctx.track);
+	}
+
+	seek(fd, si.segment + si.chapters);
 	mkv_visitchapters(fd, sf_chapter_cb, &ctx);
 	close(fd);
 }
@@ -144,8 +160,8 @@ main(int argc, char *argv[])
 		filter_parse(argc - 1, (const char **)(argv + 1), &err);
 	if (err) return 1;
 
-	char  *line    = NULL;
-	size_t linecap = 0;
+	char   *line    = NULL;
+	size_t  linecap = 0;
 	ssize_t len;
 
 	while ((len = getline(&line, &linecap, stdin)) > 0) {
