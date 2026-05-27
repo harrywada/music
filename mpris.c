@@ -339,6 +339,28 @@ prop_metadata(sd_bus *, const char *, const char *,
 				                      "xesam:trackNumber", tn);
 				if (r < 0) return r;
 			}
+
+			tv = &m->tags.fields[TAG_DISC];
+			if (tv->count > 0) {
+				int32_t dn = (int32_t)strtol(tv->vals[0],
+				                             nullptr, 10);
+				r = append_dict_int32(reply, "xesam:discNumber", dn);
+				if (r < 0) return r;
+			}
+
+			tv = &m->tags.fields[TAG_GENRE];
+			if (tv->count > 0) {
+				r = append_dict_strv(reply, "xesam:genre", tv);
+				if (r < 0) return r;
+			}
+
+			tv = &m->tags.fields[TAG_DATE];
+			if (tv->count > 0) {
+				r = append_dict_string(reply,
+				                       "xesam:contentCreated",
+				                       tv->vals[0]);
+				if (r < 0) return r;
+			}
 		}
 	}
 
