@@ -263,6 +263,19 @@ main(int argc, char *argv[])
 	player_pid = -1;
 
 	while (state.mode != EXITING) {
+		/* Drain sd-bus before blocking so that any messages buffered
+		   internally (e.g. NameOwnerChanged after request_name) are
+		   processed before sd_bus_get_events() is consulted.  Without
+		   this, sd_bus_get_events() may return 0 while rqueue_size > 0,
+		   causing poll(2) to never watch FD_MPRIS for POLLIN. */
+		if (mpris) {
+			int r;
+			while ((r = mpris_process(mpris, &state)) > 0)
+				;
+			if (r < 0)
+				debug(-r, "mpris_process");
+		}
+
 		if (mpris)
 			fds.fds[FD_MPRIS].events = mpris_events(mpris);
 		fds.ready = poll(fds.fds, FD_END + fds.nclients, -1);
@@ -374,8 +387,8 @@ main(int argc, char *argv[])
 next_client:;
 		}
 
-		/* MPRIS method calls. */
-		if (mpris && (fds.fds[FD_MPRIS].revents & (POLLIN | POLLOUT))) {
+		/* MPRIS — handle new incoming D-Bus traffic. */
+		if (mpris && fds.fds[FD_MPRIS].revents) {
 			int r;
 			while ((r = mpris_process(mpris, &newstate)) > 0)
 				;

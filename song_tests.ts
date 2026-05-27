@@ -1,3 +1,5 @@
+#include <stdlib.h>
+#include <string.h>
 #include "song.h"
 
 #suite struct song
@@ -43,3 +45,18 @@ const struct {
 #test parse_song_rejects_missing_uids
 	const char line[] = "/a/b/c.mka";
 	ck_assert(!parse_song(line, &song));
+
+#test parse_song_null_terminates_path
+	/* Poison a same-sized heap chunk before calling parse_song.
+	   glibc's tcache is LIFO, so parse_song receives this chunk.
+	   If the terminator is not written explicitly, the 0xff byte
+	   bleeds into the path and ck_assert_str_eq catches it. */
+	const char  line[] = "./some-file.mka#42";
+	const char *hash   = strchr(line, '#');
+	size_t      plen   = (size_t)(hash - line);
+	char *poison = malloc(plen + 1);
+	memset(poison, 0xff, plen + 1);
+	free(poison);
+	ck_assert(parse_song(line, &song));
+	ck_assert_str_eq(song.path, "./some-file.mka");
+	cleanup_song(&song);

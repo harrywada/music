@@ -3,6 +3,9 @@
 # Binaries
 musicd
 play
+sc
+sf
+sp
 
 # Tests
 *_tests
