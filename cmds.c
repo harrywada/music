@@ -6,6 +6,7 @@
 #include "cmds.h"
 #include "song.h"
 #include "state.h"
+#include "utils.h"
 
 struct state
 cmd(struct state s, unsigned int argc, const char *args[])
@@ -23,7 +24,7 @@ cmd(struct state s, unsigned int argc, const char *args[])
 	DO(toggle);
 #undef DO
 
-	/* TODO Log invalid command. */
+	warn(0, "unknown command: %s", args[0]);
 	return s;
 }
 
@@ -40,19 +41,19 @@ struct state
 cmd_queue(struct state s, unsigned int argc, const char *args[])
 {
 	if (argc != 1) {
-		/* TODO Log error. */
+		warn(0, "queue: expected 1 argument, got %u", argc);
 		return s;
 	}
 
 	struct song song;
 	if (!parse_song(args[0], &song)) {
-		/* TODO Log error. */
+		warn(0, "queue: invalid song: %s", args[0]);
 		return s;
 	}
 
 	auto newq = push(s.queue, song);
 	if (qsize(newq) != qsize(s.queue) + 1) {
-		/* TODO Log error. */
+		warn(0, "queue: failed to push song");
 		return s;
 	}
 
@@ -82,27 +83,27 @@ struct state
 cmd_insert(struct state s, unsigned int argc, const char *args[])
 {
 	if (argc != 2) {
-		/* TODO Log error. */
+		warn(0, "insert: expected 2 arguments, got %u", argc);
 		return s;
 	}
 
 	struct song song;
 	if (!parse_song(args[0], &song)) {
-		/* TODO Log error. */
+		warn(0, "insert: invalid song: %s", args[0]);
 		return s;
 	}
 
 	char *end;
 	long idx = strtol(args[1], &end, 10);
 	if (*end != '\0') {
-		/* TODO Log error. */
+		warn(0, "insert: invalid index: %s", args[1]);
 		cleanup_song(&song);
 		return s;
 	}
 
 	auto newq = insert_at(s.queue, song, (int) idx);
 	if (qsize(newq) != qsize(s.queue) + 1) {
-		/* TODO Log error. */
+		warn(0, "insert: failed to insert song");
 		return s;
 	}
 

@@ -7,6 +7,7 @@
 #include <stdlib.h> /* EXIT_FAILURE(3const), EXIT_SUCCESS(3const), exit(3), strtoul(3). */
 #include <string.h> /* strlen(3). */
 #include <sys/signalfd.h> /* signalfd(2). */
+#include <syslog.h>      /* openlog(3), LOG_*(3). */
 
 #include <alsa/asoundlib.h>
 
@@ -324,6 +325,8 @@ rem(struct buf buf)
 int
 main(int argc, char *argv[])
 {
+	openlog("play", LOG_PID, LOG_DAEMON);
+
 	[[gnu::cleanup(cleanup_pollfds)]] struct pollfd fds[FD_END] = {};
 	[[gnu::cleanup(cleanup_pcm)]]    snd_pcm_t    *pcm = NULL;
 

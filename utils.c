@@ -1,36 +1,48 @@
-#include <stdarg.h> /* va_list(3type), va_start(3). */
-#include <stdio.h> /* printf(3). */
+#include <stdarg.h> /* va_list(3type), va_start(3), va_end(3). */
+#include <stdio.h>  /* vsnprintf(3). */
 #include <stdlib.h> /* abort(3), exit(3). */
 #include <string.h> /* strerror(3). */
+#include <syslog.h> /* syslog(3), LOG_*(3). */
 #include <unistd.h> /* lseek(2), off_t(3type). */
 
 #include "utils.h"
+
+static void
+log_msg(int priority, int err, char *msg, va_list args)
+{
+	char buf[512];
+	vsnprintf(buf, sizeof buf, msg, args);
+	if (err)
+		syslog(priority, "%s: %s", buf, strerror(err));
+	else
+		syslog(priority, "%s", buf);
+}
 
 void
 debug(int err, char *msg, ...)
 {
 	va_list args;
-
 	va_start(args, msg);
-	vfprintf(stderr, msg, args);
+	log_msg(LOG_DEBUG, err, msg, args);
+	va_end(args);
+}
 
-	if (err)
-		fprintf(stderr, ": %s", strerror(err));
-	fprintf(stderr, "\n");
+void
+warn(int err, char *msg, ...)
+{
+	va_list args;
+	va_start(args, msg);
+	log_msg(LOG_WARNING, err, msg, args);
+	va_end(args);
 }
 
 void
 die(int err, char *msg, ...)
 {
 	va_list args;
-
 	va_start(args, msg);
-	vfprintf(stderr, msg, args);
-
-	if (err)
-		fprintf(stderr, ": %s", strerror(err));
-	fprintf(stderr, "\n");
-
+	log_msg(LOG_ERR, err, msg, args);
+	va_end(args);
 	exit(EXIT_FAILURE);
 }
 

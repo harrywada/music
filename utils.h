@@ -13,6 +13,8 @@ if ((err = snd_pcm_ ## fn (__VA_ARGS__)) < 0)
 
 [[gnu::format(gnu_printf, 2, 3)]]
 void debug(int, char *, ...);
+[[gnu::format(gnu_printf, 2, 3)]]
+void warn(int, char *, ...);
 [[noreturn, gnu::format(gnu_printf, 2, 3)]]
 void die(int, char *, ...);
 

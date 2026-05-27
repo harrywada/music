@@ -8,6 +8,7 @@
 #include <sys/socket.h>  /* accept(3p), bind(3p), listen(3p), socket(3p). */
 #include <sys/un.h>      /* sockaddr_un. */
 #include <sys/wait.h>    /* waitpid(2). */
+#include <syslog.h>      /* openlog(3), LOG_*(3). */
 #include <unistd.h>      /* close(2p), read(2). */
 
 #include "cmds.h"
@@ -203,6 +204,8 @@ mksocket(const char *path)
 int
 main(int argc, char *argv[])
 {
+	openlog("musicd", LOG_PID, LOG_DAEMON);
+
 	[[gnu::cleanup(cleanup_state)]]
 	struct state state;
 
@@ -316,6 +319,9 @@ main(int argc, char *argv[])
 				while ((nl = memchr(start, '\n',
 				    client->len - (unsigned int)(start - client->buf)))) {
 					*nl = '\0';
+
+					if (*start)
+						debug(0, "%s", start);
 
 					const char *args[CMD_ARGV_MAX];
 					unsigned int nargs = 0;
