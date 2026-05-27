@@ -93,9 +93,9 @@ effect(const struct state old, const struct state new)
 {
 	bool song_changed = (old.queue.head != new.queue.head);
 
-	/* Kill the running player if stopping or the song changed. */
+	/* Kill the running player if stopping, the song changed, or exiting. */
 	if (player_pid != -1
-	    && (new.play == STOPPED || song_changed)) {
+	    && (new.play == STOPPED || song_changed || new.mode == EXITING)) {
 		if (kill(player_pid, SIGHUP) == -1) {
 			debug(errno, "kill");
 			return false;
