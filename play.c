@@ -67,6 +67,7 @@ struct state {
 	struct cfg     cfg;
 	struct pollfd *fds;
 	bool           run;
+	bool           draining;
 };
 
 static int err = 0;
@@ -119,6 +120,18 @@ handle_alsa(struct state *s)
 	struct buf buf; /* TODO struct buf buf[cfg.chans]. */
 
 	unsigned short revents;
+
+	/*
+	 * While draining, skip the mmap path entirely and just check
+	 * whether the PCM has finished.  The poll loop uses a short
+	 * timeout so we end up here regularly even if the FD never fires.
+	 */
+	if (s->draining) {
+		snd_pcm_state_t st = snd_pcm_state(s->pcm);
+		if (st == SND_PCM_STATE_SETUP || st == SND_PCM_STATE_DISCONNECTED)
+			s->run = false;
+		return true;
+	}
 
 	SND_WARN(== 0, pcm_poll_descriptors_revents, s->pcm, &s->fds[FD_PCM], 1, &revents) {
 		return false;
@@ -184,8 +197,19 @@ handle_alsa(struct state *s)
 	}
 
 	if (s->play.done) {
-		snd_pcm_drain(s->pcm);
-		s->run = false;
+		/*
+		 * Switch to non-blocking mode so snd_pcm_drain returns
+		 * immediately: -EAGAIN if frames are still pending (PCM
+		 * enters DRAINING state and the FD fires on completion),
+		 * or 0 if the buffer was already empty.  Either way we
+		 * re-enter the poll loop and can still process signals.
+		 */
+		snd_pcm_nonblock(s->pcm, 1);
+		if (snd_pcm_drain(s->pcm) == 0) {
+			s->run = false;
+		} else {
+			s->draining = true;
+		}
 	}
 
 	return true;
@@ -401,7 +425,9 @@ main(int argc, char *argv[])
 
 	memset(&state.play, 0, sizeof state.play);
 	state.run = true;
-	while (state.run && (readyfd_n = poll(state.fds, FD_END, -1)) != -1) {
+	while (state.run
+	    && (readyfd_n = poll(state.fds, FD_END,
+	                         state.draining ? 10 : -1)) != -1) {
 		handle_alsa(&state);
 		handle_sigs(&state);
 	}
