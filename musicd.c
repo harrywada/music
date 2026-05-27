@@ -297,13 +297,13 @@ main(int argc, char *argv[])
 			struct pollfd *pfd    = &fds.fds[FD_END + i];
 			struct client *client = &fds.clients[i];
 
-			if (pfd->revents & (POLLHUP | POLLERR | POLLNVAL)) {
+			if (pfd->revents & (POLLERR | POLLNVAL)) {
 				close(client->fd);
 				remove_client(&fds, i);
 				continue;
 			}
 
-			if (pfd->revents & POLLIN) {
+			if (pfd->revents & (POLLIN | POLLHUP)) {
 				ssize_t n = read(pfd->fd,
 				                 client->buf + client->len,
 				                 CLIENT_BUF_SIZE - 1 - client->len);
