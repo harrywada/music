@@ -175,11 +175,16 @@ format_print(const struct format *f, const struct song_tags *tags, int fd)
 			           s->literal, strlen(s->literal));
 		} else {
 			const struct tag_values *tv = &tags->fields[s->field];
-			for (size_t j = 0; j < tv->count; j++) {
-				if (j > 0)
-					buf_append(&buf, &len, &cap, ", ", 2);
-				buf_append(&buf, &len, &cap,
-				           tv->vals[j], tv->lens[j]);
+			if (tv->count == 0 && s->field == TAG_DISC) {
+				buf_append(&buf, &len, &cap, "1", 1);
+			} else {
+				for (size_t j = 0; j < tv->count; j++) {
+					if (j > 0)
+						buf_append(&buf, &len, &cap,
+						           ", ", 2);
+					buf_append(&buf, &len, &cap,
+					           tv->vals[j], tv->lens[j]);
+				}
 			}
 		}
 	}

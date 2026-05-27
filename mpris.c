@@ -340,11 +340,14 @@ prop_metadata(sd_bus *, const char *, const char *,
 				if (r < 0) return r;
 			}
 
-			tv = &m->tags.fields[TAG_DISC];
-			if (tv->count > 0) {
-				int32_t dn = (int32_t)strtol(tv->vals[0],
-				                             nullptr, 10);
-				r = append_dict_int32(reply, "xesam:discNumber", dn);
+			{
+				int32_t dn = 1;
+				tv = &m->tags.fields[TAG_DISC];
+				if (tv->count > 0)
+					dn = (int32_t)strtol(tv->vals[0],
+					                     nullptr, 10);
+				r = append_dict_int32(reply,
+				                      "xesam:discNumber", dn);
 				if (r < 0) return r;
 			}
 
