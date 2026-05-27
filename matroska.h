@@ -50,6 +50,36 @@
 
 #define MKV_TAGS 0x1254c367
 
+#define MKV_TAG             0x7373
+#define MKV_TARGETS         0x63c0
+#define MKV_TARGETTYPEVALUE 0x68ca
+#define MKV_TAGTRACKUID     0x63c5
+#define MKV_TAGCHAPTERUID   0x63c6
+#define MKV_SIMPLETAG       0x67c8
+#define MKV_TAGNAME         0x45a3
+#define MKV_TAGSTRING       0x4487
+
+enum tag_field {
+	TAG_DATE,
+	TAG_ORIG_DATE,
+	TAG_ARTIST,
+	TAG_TITLE,
+	TAG_GENRE,
+	TAG_ALBUM,
+	TAG_TRACK,
+	TAG_FIELD_COUNT,
+};
+
+struct tag_values {
+	char   **vals; /* heap array of null-terminated strings */
+	size_t  *lens;
+	size_t   count;
+};
+
+struct song_tags {
+	struct tag_values fields[TAG_FIELD_COUNT];
+};
+
 struct mkv_seekinfo {
 	off_t segment;
 	off_t info;
@@ -121,6 +151,19 @@ struct mkv_range {
 struct mkv_cursor {
 	struct mkv_cluster cluster;
 };
+
+/* fd positioned by caller at MKV_TAGS (seek to si.segment + si.tags first). */
+[[gnu::fd_arg_read(1), gnu::nonnull(4)]]
+int mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
+                     struct song_tags *);
+[[gnu::nonnull(1)]]
+void song_tags_free(struct song_tags *);
+
+/* fd positioned by caller at MKV_CHAPTERS element. Saves and restores fd
+   position around each callback so the callback may freely seek. */
+[[gnu::fd_arg_read(1), gnu::nonnull(2)]]
+int mkv_visitchapters(int fd,
+    int (*cb)(const struct mkv_chapter *, void *), void *);
 
 [[gnu::fd_arg_read(1)]]
 int mkv_readseekinfo(int, struct mkv_seekinfo *);
