@@ -1,0 +1,144 @@
+#include <stdlib.h> /* strtol(3). */
+#include <string.h> /* strcmp(3). */
+
+#include "cmds.h"
+#include "song.h"
+#include "state.h"
+
+struct state
+cmd(struct state s, unsigned int argc, const char *args[])
+{
+#define DO(cmd)                         \
+	if (strcmp(args[0], #cmd) == 0) \
+		return cmd_ ## cmd(s, argc - 1, &args[1])
+	DO(exit);
+	DO(queue);
+	DO(pause);
+	DO(play);
+	DO(insert);
+	DO(skip);
+	DO(stop);
+	DO(toggle);
+#undef DO
+
+	/* TODO Log invalid command. */
+	return s;
+}
+
+struct state
+cmd_exit(                struct state s,
+         [[gnu::unused]] unsigned int argc,
+         [[gnu::unused]] const char *args[])
+{
+	s.mode = EXITING;
+	return s;
+}
+
+struct state
+cmd_queue(struct state s, unsigned int argc, const char *args[])
+{
+	if (argc != 1) {
+		/* TODO Log error. */
+		return s;
+	}
+
+	struct song song;
+	if (!parse_song(args[0], &song)) {
+		/* TODO Log error. */
+		return s;
+	}
+
+	auto newq = push(s.queue, song);
+	if (qsize(newq) != qsize(s.queue) + 1) {
+		/* TODO Log error. */
+		return s;
+	}
+
+	s.queue = newq;
+	return s;
+}
+
+struct state
+cmd_pause(                struct state s,
+          [[gnu::unused]] unsigned int argc,
+          [[gnu::unused]] const char *args[])
+{
+	s.play = PAUSED;
+	return s;
+}
+
+struct state
+cmd_play(                struct state s,
+         [[gnu::unused]] unsigned int argc,
+         [[gnu::unused]] const char *args[])
+{
+	s.play = PLAYING;
+	return s;
+}
+
+struct state
+cmd_insert(struct state s, unsigned int argc, const char *args[])
+{
+	if (argc != 2) {
+		/* TODO Log error. */
+		return s;
+	}
+
+	struct song song;
+	if (!parse_song(args[0], &song)) {
+		/* TODO Log error. */
+		return s;
+	}
+
+	char *end;
+	long idx = strtol(args[1], &end, 10);
+	if (*end != '\0') {
+		/* TODO Log error. */
+		cleanup_song(&song);
+		return s;
+	}
+
+	auto newq = insert_at(s.queue, song, (int) idx);
+	if (qsize(newq) != qsize(s.queue) + 1) {
+		/* TODO Log error. */
+		return s;
+	}
+
+	s.queue = newq;
+	return s;
+}
+
+struct state
+cmd_skip(                struct state s,
+         [[gnu::unused]] unsigned int argc,
+         [[gnu::unused]] const char *args[])
+{
+	if (qsize(s.queue))
+		s.queue = pop(s.queue, nullptr);
+
+	if (!qsize(s.queue))
+		s.play = STOPPED;
+
+	return s;
+}
+
+struct state
+cmd_stop(                struct state s,
+         [[gnu::unused]] unsigned int argc,
+         [[gnu::unused]] const char *args[])
+{
+	s.play = STOPPED;
+	return s;
+}
+
+struct state
+cmd_toggle(                struct state s,
+           [[gnu::unused]] unsigned int argc,
+           [[gnu::unused]] const char *args[])
+{
+	if (s.play == PLAYING)
+		s.play = PAUSED;
+	else if (s.play == PAUSED)
+		s.play = PLAYING;
+	return s;
+}
