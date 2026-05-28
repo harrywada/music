@@ -35,6 +35,9 @@ connect_socket(const char *path)
 struct expand_ctx {
 	const char *sockpath;
 	const char *filepath;
+	bool        has_pos;
+	long        idx; /* current insert_at index; mutated per song */
+	bool        neg; /* true when sq position < 0 */
 };
 
 static int
@@ -43,8 +46,15 @@ queue_chapter(const struct mkv_chapter *ch, void *ud)
 	struct expand_ctx *ctx = ud;
 	int sock = connect_socket(ctx->sockpath);
 	if (sock == -1) return 0;
-	dprintf(sock, "queue %s#%lu\n", ctx->filepath, (unsigned long) ch->uid);
+	if (ctx->has_pos)
+		dprintf(sock, "insert %s#%lu %ld\n",
+		        ctx->filepath, (unsigned long) ch->uid, ctx->idx);
+	else
+		dprintf(sock, "queue %s#%lu\n",
+		        ctx->filepath, (unsigned long) ch->uid);
 	close(sock);
+	if (ctx->has_pos && !ctx->neg)
+		ctx->idx++;
 	return 1;
 }
 
@@ -52,19 +62,33 @@ int
 main(int argc, char *argv[])
 {
 	const char *sockpath = NULL;
+	bool        has_pos  = false;
+	long        pos      = 0;
 
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
 			sockpath = argv[++i];
+		} else if (!has_pos) {
+			char *end;
+			pos = strtol(argv[i], &end, 10);
+			if (*end != '\0') {
+				fprintf(stderr,
+				        "Usage: sq -s <socket-path> [position]\n");
+				return 1;
+			}
+			has_pos = true;
 		} else {
-			fprintf(stderr, "Usage: sq -s <socket-path>\n");
+			fprintf(stderr, "Usage: sq -s <socket-path> [position]\n");
 			return 1;
 		}
 	}
 	if (!sockpath) {
-		fprintf(stderr, "Usage: sq -s <socket-path>\n");
+		fprintf(stderr, "Usage: sq -s <socket-path> [position]\n");
 		return 1;
 	}
+
+	long cur_idx = has_pos ? (pos >= 0 ? pos + 1 : pos - 1) : 0;
+	bool neg     = has_pos && pos < 0;
 
 	char  *line    = NULL;
 	size_t linecap = 0;
@@ -79,7 +103,12 @@ main(int argc, char *argv[])
 			/* path#uid — send directly. */
 			int sock = connect_socket(sockpath);
 			if (sock == -1) continue;
-			dprintf(sock, "queue %s\n", line);
+			if (has_pos) {
+				dprintf(sock, "insert %s %ld\n", line, cur_idx);
+				if (!neg) cur_idx++;
+			} else {
+				dprintf(sock, "queue %s\n", line);
+			}
 			close(sock);
 		} else {
 			/* Bare path — expand all chapters. */
@@ -103,8 +132,12 @@ main(int argc, char *argv[])
 
 			seek(fd, si.segment + si.chapters);
 			struct expand_ctx ctx = { .sockpath = sockpath,
-			                          .filepath = line };
+			                          .filepath = line,
+			                          .has_pos  = has_pos,
+			                          .idx      = cur_idx,
+			                          .neg      = neg };
 			mkv_visitchapters(fd, queue_chapter, &ctx);
+			cur_idx = ctx.idx;
 			close(fd);
 		}
 	}
