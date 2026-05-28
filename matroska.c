@@ -418,13 +418,16 @@ mkv_findtrack(int fd, const uint64_t uids[static TRACKS_MAX], struct mkv_track *
 int
 mkv_findcue(int fd, uint64_t start, uint64_t ts_scale, uint32_t track, off_t *out)
 {
-	struct mkv_cue cue = {0}, next;
+	struct mkv_cue cue = {0};
 	int found = 0;
 
 	if (ebml_descend(fd, MKV_CUES) == -1)
 		return 0;
 
-	while (mkv_readcuepoint(fd, &next)) {
+	for (;;) {
+		struct mkv_cue next = {0};
+		if (!mkv_readcuepoint(fd, &next))
+			break;
 		if (next.time * ts_scale > start)
 			break;
 		cue = next;
@@ -736,6 +739,7 @@ tag_scope(int fd, uint64_t chapter_uid, uint64_t track_uid)
 	uint32_t target_type      = 50;
 	bool has_any_chapter      = false;
 	bool has_matching_chapter = false;
+	bool has_any_track        = false;
 	bool has_matching_track   = false;
 
 	if (ebml_peek(fd) == MKV_TARGETS) {
@@ -757,6 +761,7 @@ tag_scope(int fd, uint64_t chapter_uid, uint64_t track_uid)
 				break;
 			case MKV_TAGTRACKUID:
 				if (ebml_readuint(fd, MKV_TAGTRACKUID, &tmp)) {
+					has_any_track = true;
 					if (tmp == track_uid)
 						has_matching_track = true;
 				}
@@ -768,11 +773,17 @@ tag_scope(int fd, uint64_t chapter_uid, uint64_t track_uid)
 		}
 	}
 
-	if (has_matching_chapter)                   return SCOPE_CHAPTER;
-	if (has_any_chapter)                        return -1;
-	if (has_matching_track || target_type == 30) return SCOPE_TRACK;
-	if (target_type == 50)                      return SCOPE_ALBUM;
-	if (target_type == 60)                      return SCOPE_EDITION;
+	/* An explicit TagTrackUID that doesn't match means this tag targets a
+	 * different track; skip it.  When no TagTrackUID is present, fall back
+	 * to TargetTypeValue so that track-level tags in files that have been
+	 * remuxed (and thus have stale UIDs) are not silently discarded. */
+	if (has_matching_chapter) return SCOPE_CHAPTER;
+	if (has_any_chapter)      return -1;
+	if (has_matching_track)   return SCOPE_TRACK;
+	if (has_any_track)        return -1;
+	if (target_type == 30)    return SCOPE_TRACK;
+	if (target_type == 50)    return SCOPE_ALBUM;
+	if (target_type == 60)    return SCOPE_EDITION;
 	return -1;
 }
 
