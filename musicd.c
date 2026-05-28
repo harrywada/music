@@ -12,7 +12,9 @@
 #include <unistd.h>      /* close(2p), read(2). */
 
 #include "cmds.h"
+#ifdef MPRIS
 #include "mpris.h"
+#endif
 #include "queue.h"
 #include "state.h"
 #include "utils.h"
@@ -27,7 +29,9 @@
 enum fdtype {
 	FD_SOCK = 0,
 	FD_SIG,
+#ifdef MPRIS
 	FD_MPRIS,
+#endif
 	FD_END,
 };
 
@@ -50,11 +54,13 @@ static pid_t player_pid;
 
 static bool effect(const struct state, const struct state);
 
+#ifdef MPRIS
 static void
 cleanup_mpris(struct mpris **m)
 {
 	mpris_close(*m);
 }
+#endif
 
 [[gnu::nonnull(1)]]
 static int mksocket(const char *);
@@ -69,7 +75,9 @@ cleanup_fds(struct fds *fds)
 		unlink(fds->sockpath);
 
 	for (unsigned int i = 0; i < fds->n; i++) {
+#ifdef MPRIS
 		if (i == FD_MPRIS) continue; /* fd owned by sd-bus */
+#endif
 		if (fds->fds[i].fd >= 0)
 			close(fds->fds[i].fd);
 	}
@@ -250,6 +258,7 @@ main(int argc, char *argv[])
 		fds.fds[FD_SIG].events = POLLIN;
 	}
 
+#ifdef MPRIS
 	fds.fds[FD_MPRIS].fd     = -1; /* poll(2) ignores negative fds. */
 	fds.fds[FD_MPRIS].events = 0;
 
@@ -259,6 +268,7 @@ main(int argc, char *argv[])
 		fds.fds[FD_MPRIS].fd     = mpris_fd(mpris);
 		fds.fds[FD_MPRIS].events = mpris_events(mpris);
 	}
+#endif
 
 	player_pid = -1;
 
@@ -268,6 +278,7 @@ main(int argc, char *argv[])
 		   processed before sd_bus_get_events() is consulted.  Without
 		   this, sd_bus_get_events() may return 0 while rqueue_size > 0,
 		   causing poll(2) to never watch FD_MPRIS for POLLIN. */
+#ifdef MPRIS
 		if (mpris) {
 			int r;
 			while ((r = mpris_process(mpris, &state)) > 0)
@@ -278,6 +289,7 @@ main(int argc, char *argv[])
 
 		if (mpris)
 			fds.fds[FD_MPRIS].events = mpris_events(mpris);
+#endif
 		fds.ready = poll(fds.fds, FD_END + fds.nclients, -1);
 		if (fds.ready == -1)
 			break;
@@ -383,6 +395,7 @@ next_client:;
 		}
 
 		/* MPRIS — handle new incoming D-Bus traffic. */
+#ifdef MPRIS
 		if (mpris && fds.fds[FD_MPRIS].revents) {
 			int r;
 			while ((r = mpris_process(mpris, &newstate)) > 0)
@@ -390,11 +403,16 @@ next_client:;
 			if (r < 0)
 				debug(-r, "mpris_process");
 		}
+#endif
 
+#ifdef MPRIS
 		struct state prev = state;
+#endif
 		if (effect(state, newstate))
 			state = newstate;
+#ifdef MPRIS
 		if (mpris)
 			mpris_notify(mpris, prev, state);
+#endif
 	}
 }

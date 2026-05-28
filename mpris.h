@@ -1,4 +1,7 @@
 #pragma once
+
+#ifdef MPRIS
+
 #include "state.h"
 
 struct mpris;
@@ -29,3 +32,5 @@ void mpris_notify(struct mpris *, struct state old, struct state new);
 
 /* Flush, unregister, and free.  Safe on NULL. */
 void mpris_close(struct mpris *);
+
+#endif /* MPRIS */
