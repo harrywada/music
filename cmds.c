@@ -208,6 +208,15 @@ cmd_status(struct state s, int fd)
 }
 
 void
+cmd_size(struct state s, int fd)
+{
+	char buf[16];
+	int  n = snprintf(buf, sizeof buf, "%u\n", qsize(s.queue));
+	if (n > 0)
+		(void) write(fd, buf, (size_t) n);
+}
+
+void
 cmd_list(struct state s, int fd)
 {
 	for (unsigned int i = s.queue.head; i != s.queue.tail; i++) {
