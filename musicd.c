@@ -186,6 +186,56 @@ remove_client(struct fds *fds, unsigned int i)
 	fds->nclients--;
 }
 
+static void
+dispatch_cmd(struct state *state, int fd, const char **args, unsigned int nargs)
+{
+	if (strcmp(args[0], "list") == 0)
+		cmd_list(*state, fd);
+	else if (strcmp(args[0], "status") == 0)
+		cmd_status(*state, fd);
+	else
+		*state = cmd(*state, nargs, args);
+}
+
+/* Scan client->buf for a complete newline-terminated command, parse and
+ * dispatch it.  Returns true if a command was dispatched (the client
+ * has been replied to and the connection should be closed). */
+static bool
+process_client_buf(struct state *state, struct client *client)
+{
+	char *start = client->buf;
+	char *nl;
+
+	while ((nl = memchr(start, '\n',
+	    client->len - (unsigned int)(start - client->buf)))) {
+		*nl = '\0';
+
+		if (*start)
+			debug(0, "%s", start);
+
+		const char *args[CMD_ARGV_MAX];
+		unsigned int nargs = 0;
+		char *tok = strtok(start, " ");
+		while (tok && nargs < CMD_ARGV_MAX) {
+			args[nargs++] = tok;
+			tok = strtok(nullptr, " ");
+		}
+
+		if (nargs > 0) {
+			dispatch_cmd(state, client->fd, args, nargs);
+			return true;
+		}
+
+		start = nl + 1;
+	}
+
+	unsigned int remaining = client->len
+	    - (unsigned int)(start - client->buf);
+	memmove(client->buf, start, remaining);
+	client->len = remaining;
+	return false;
+}
+
 static int
 mksocket(const char *path)
 {
@@ -353,45 +403,14 @@ main(int argc, char *argv[])
 				}
 				client->len += (unsigned int) n;
 
-				char *start = client->buf;
-				char *nl;
-				while ((nl = memchr(start, '\n',
-				    client->len - (unsigned int)(start - client->buf)))) {
-					*nl = '\0';
-
-					if (*start)
-						debug(0, "%s", start);
-
-					const char *args[CMD_ARGV_MAX];
-					unsigned int nargs = 0;
-					char *tok = strtok(start, " ");
-					while (tok && nargs < CMD_ARGV_MAX) {
-						args[nargs++] = tok;
-						tok = strtok(nullptr, " ");
-					}
-					if (nargs > 0) {
-					if (strcmp(args[0], "list") == 0)
-						cmd_list(newstate, client->fd);
-					else if (strcmp(args[0], "status") == 0)
-						cmd_status(newstate, client->fd);
-					else
-						newstate = cmd(newstate, nargs, args);
+				if (process_client_buf(&newstate, client)) {
 					close(client->fd);
 					remove_client(&fds, i);
-					goto next_client;
+					continue;
 				}
-
-					start = nl + 1;
-				}
-
-				unsigned int remaining = client->len
-				    - (unsigned int)(start - client->buf);
-				memmove(client->buf, start, remaining);
-				client->len = remaining;
 			}
 
 			i++;
-next_client:;
 		}
 
 		/* MPRIS — handle new incoming D-Bus traffic. */
