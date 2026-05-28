@@ -1,10 +1,12 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <systemd/sd-bus.h>
 #include <unistd.h>
@@ -31,6 +33,7 @@ struct mpris {
 	struct song_tags tags;     /* Matroska tags for the current song */
 	bool             have_tags;
 	unsigned long    cur_uid;  /* uid whose tags are currently cached */
+	char            *art_path; /* absolute path to extracted cover art, or NULL */
 };
 
 /* Forward declarations. */
@@ -60,16 +63,31 @@ open_mkv(const char *path, struct mkv_seekinfo *si)
 }
 
 static void
+cleanup_art(struct mpris *m)
+{
+	if (!m->art_path)
+		return;
+	if (unlink(m->art_path) == -1 && errno != ENOENT)
+		debug(errno, "mpris: unlink %s", m->art_path);
+	free(m->art_path);
+	m->art_path = NULL;
+}
+
+static void
 refresh_tags(struct mpris *m, const struct song *s)
 {
+	cleanup_art(m);
+
 	if (m->have_tags) {
 		song_tags_free(&m->tags);
 		m->have_tags = false;
 	}
+
 	struct mkv_seekinfo si;
 	int fd = open_mkv(s->path, &si);
 	if (fd == -1)
 		return;
+
 	if (si.tags) {
 		seek(fd, si.segment + si.tags);
 		m->tags = (struct song_tags){0};
@@ -77,6 +95,72 @@ refresh_tags(struct mpris *m, const struct song *s)
 		m->have_tags = true;
 		m->cur_uid   = s->uid;
 	}
+
+	if (si.attachments) {
+		seek(fd, si.segment + si.attachments);
+		struct mkv_attachment att;
+		if (mkv_findcoverart(fd, &att)) {
+			/* Reject filenames with path separators (path traversal). */
+			if (strchr(att.filename, '/'))
+				goto done;
+
+			char dir[PATH_MAX];
+			const char *xdg = getenv("XDG_CACHE_HOME");
+			if (xdg && xdg[0]) {
+				if (snprintf(dir, sizeof dir, "%s/music", xdg)
+				    >= (int)sizeof dir)
+					goto done;
+			} else {
+				const char *home = getenv("HOME");
+				if (!home || !home[0])
+					goto done;
+				if (snprintf(dir, sizeof dir, "%s/.cache/music", home)
+				    >= (int)sizeof dir)
+					goto done;
+			}
+
+			if (mkdir(dir, 0700) == -1 && errno != EEXIST) {
+				debug(errno, "mpris: mkdir %s", dir);
+				goto done;
+			}
+
+			char path[PATH_MAX];
+			if (snprintf(path, sizeof path, "%s/%s", dir, att.filename)
+			    >= (int)sizeof path)
+				goto done;
+
+			int out = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+			if (out == -1) {
+				debug(errno, "mpris: open %s", path);
+				goto done;
+			}
+
+			seek(fd, att.data_off);
+			char buf[8192];
+			size_t remaining = att.data_sz;
+			bool ok = true;
+			while (remaining > 0) {
+				size_t chunk = remaining < sizeof buf
+				             ? remaining : sizeof buf;
+				ssize_t nr = read(fd, buf, chunk);
+				if (nr <= 0) { ok = false; break; }
+				if (write(out, buf, (size_t)nr) != nr)
+					{ ok = false; break; }
+				remaining -= (size_t)nr;
+			}
+			close(out);
+
+			if (ok) {
+				m->art_path = strdup(path);
+				if (!m->art_path)
+					debug(errno, "mpris: strdup art_path");
+			} else {
+				unlink(path);
+			}
+		}
+	}
+
+done:
 	close(fd);
 }
 
@@ -365,6 +449,13 @@ prop_metadata(sd_bus *, const char *, const char *,
 				if (r < 0) return r;
 			}
 		}
+
+		if (m->art_path) {
+			char uri[sizeof("file://") + PATH_MAX];
+			snprintf(uri, sizeof uri, "file://%s", m->art_path);
+			r = append_dict_string(reply, "mpris:artUrl", uri);
+			if (r < 0) return r;
+		}
 	}
 
 	return sd_bus_message_close_container(reply);
@@ -556,6 +647,7 @@ mpris_notify(struct mpris *m, struct state old, struct state new)
 			song_tags_free(&m->tags);
 			m->have_tags = false;
 		}
+		cleanup_art(m);
 		song_changed = qsize(old.queue) > 0;
 	} else {
 		const struct song *s = &new.queue.data[
@@ -596,6 +688,7 @@ mpris_close(struct mpris *m)
 		return;
 	if (m->have_tags)
 		song_tags_free(&m->tags);
+	cleanup_art(m);
 	sd_bus_unref(m->bus);
 	free(m);
 }
