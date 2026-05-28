@@ -42,7 +42,7 @@ main(int argc, char *argv[])
 			fprintf(stderr,
 			    "Usage: sc -s <socket-path> <command>\n"
 			    "Commands: exit list loop consume pause play skip"
-			    " stop toggle status\n");
+			    " stop toggle status clear\n");
 			return 1;
 		}
 	}

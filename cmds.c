@@ -21,6 +21,7 @@ cmd(struct state s, unsigned int argc, const char *args[])
 	DO(pause);
 	DO(play);
 	DO(insert);
+	DO(clear);
 	DO(skip);
 	DO(stop);
 	DO(toggle);
@@ -128,6 +129,19 @@ cmd_insert(struct state s, unsigned int argc, const char *args[])
 	}
 
 	s.queue = newq;
+	return s;
+}
+
+struct state
+cmd_clear(                struct state s,
+          [[gnu::unused]] unsigned int argc,
+          [[gnu::unused]] const char *args[])
+{
+	if (qsize(s.queue) <= 1)
+		return s;
+	for (unsigned int i = s.queue.head + 1; i != s.queue.tail; i++)
+		cleanup_song(&s.queue.data[i % s.queue.size]);
+	s.queue.tail = s.queue.head + 1;
 	return s;
 }
 
