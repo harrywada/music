@@ -152,6 +152,32 @@ const struct {
 	ck_assert_int_eq(s.play, STOPPED);
 	cleanup_state(&s);
 
+#test cmd_skip_loop_moves_song_to_back
+	struct state s;
+	ck_assert(mkstate(&s));
+	s.mode = LOOP;
+	const char *qa[] = { "/a.mka#1", nullptr };
+	const char *qb[] = { "/b.mka#2", nullptr };
+	s = cmd_queue(s, 1, qa);
+	s = cmd_queue(s, 1, qb);
+	s.play = PLAYING;
+	s = cmd_skip(s, 0, nullptr);
+	ck_assert_uint_eq(qsize(s.queue), 2);
+	ck_assert_int_eq(s.play, PLAYING);
+	cleanup_state(&s);
+
+#test cmd_skip_loop_single_song_stays_playing
+	struct state s;
+	ck_assert(mkstate(&s));
+	s.mode = LOOP;
+	const char *qa[] = { "/a.mka#1", nullptr };
+	s = cmd_queue(s, 1, qa);
+	s.play = PLAYING;
+	s = cmd_skip(s, 0, nullptr);
+	ck_assert_uint_eq(qsize(s.queue), 1);
+	ck_assert_int_eq(s.play, PLAYING);
+	cleanup_state(&s);
+
 #tcase stop
 
 #test cmd_stop_sets_stopped
@@ -253,4 +279,24 @@ const struct {
 	close(pfd[0]);
 	ck_assert(nr > 0);
 	ck_assert_str_eq(buf, "/b.mka#2\n");
+	cleanup_state(&s);
+
+#test cmd_list_reflects_loop_skip
+	struct state s;
+	ck_assert(mkstate(&s));
+	s.mode = LOOP;
+	const char *qa[] = { "/a.mka#1", nullptr };
+	const char *qb[] = { "/b.mka#2", nullptr };
+	s = cmd_queue(s, 1, qa);
+	s = cmd_queue(s, 1, qb);
+	s = cmd_skip(s, 0, nullptr);
+	int pfd[2];
+	ck_assert_int_eq(pipe(pfd), 0);
+	cmd_list(s, pfd[1]);
+	close(pfd[1]);
+	char buf[64] = { 0 };
+	ssize_t nr = read(pfd[0], buf, sizeof buf - 1);
+	close(pfd[0]);
+	ck_assert(nr > 0);
+	ck_assert_str_eq(buf, "/b.mka#2\n/a.mka#1\n");
 	cleanup_state(&s);

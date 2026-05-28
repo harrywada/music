@@ -136,8 +136,15 @@ cmd_skip(                struct state s,
          [[gnu::unused]] unsigned int argc,
          [[gnu::unused]] const char *args[])
 {
-	if (qsize(s.queue))
-		s.queue = pop(s.queue, nullptr);
+	if (qsize(s.queue)) {
+		if (s.mode == LOOP) {
+			struct song cur;
+			s.queue = pop(s.queue, &cur);
+			s.queue = push(s.queue, cur);
+		} else {
+			s.queue = pop(s.queue, nullptr);
+		}
+	}
 
 	if (!qsize(s.queue))
 		s.play = STOPPED;

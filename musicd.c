@@ -308,14 +308,9 @@ main(int argc, char *argv[])
 					if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0) {
 						switch (newstate.mode) {
 						case CONSUME:
+						case LOOP:
 							newstate = cmd_skip(newstate, 0, nullptr);
 							break;
-						case LOOP: {
-							struct song cur;
-							newstate.queue = pop(newstate.queue, &cur);
-							newstate.queue = push(newstate.queue, cur);
-							break;
-						}
 						case EXITING:
 							break;
 						}
