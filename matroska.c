@@ -719,6 +719,63 @@ mkv_visitchapters(int fd,
 	return visited;
 }
 
+/* Determine the scope for a Tag element.  Called with fd positioned at
+ * the first child of Tag (before or at Targets).
+ *
+ * Chapter UIDs are specific (they identify an individual song): skip any
+ * Tag whose chapter UIDs are all for other chapters.  Track UIDs identify
+ * the audio track that carries all songs in the container; files that have
+ * been remuxed often end up with a TagTrackUID that no longer matches the
+ * TrackUID in the Tracks element, so fall back to TargetTypeValue rather
+ * than silently discarding the tag.
+ *
+ * Returns a SCOPE_* constant, or -1 if this Tag should be skipped. */
+static int
+tag_scope(int fd, uint64_t chapter_uid, uint64_t track_uid)
+{
+	uint32_t target_type      = 50;
+	bool has_any_chapter      = false;
+	bool has_matching_chapter = false;
+	bool has_matching_track   = false;
+
+	if (ebml_peek(fd) == MKV_TARGETS) {
+		off_t targets_end;
+		if ((targets_end = ebml_descend(fd, MKV_TARGETS)) == -1)
+			return -1;
+		while (pos(fd) < targets_end) {
+			uint64_t tmp = 0;
+			switch (ebml_peek(fd)) {
+			case MKV_TARGETTYPEVALUE:
+				ebml_readuint(fd, MKV_TARGETTYPEVALUE, &target_type);
+				break;
+			case MKV_TAGCHAPTERUID:
+				if (ebml_readuint(fd, MKV_TAGCHAPTERUID, &tmp)) {
+					has_any_chapter = true;
+					if (tmp == chapter_uid)
+						has_matching_chapter = true;
+				}
+				break;
+			case MKV_TAGTRACKUID:
+				if (ebml_readuint(fd, MKV_TAGTRACKUID, &tmp)) {
+					if (tmp == track_uid)
+						has_matching_track = true;
+				}
+				break;
+			default:
+				ebml_skip(fd, EBML_ANY_ELEMENT);
+				break;
+			}
+		}
+	}
+
+	if (has_matching_chapter)                   return SCOPE_CHAPTER;
+	if (has_any_chapter)                        return -1;
+	if (has_matching_track || target_type == 30) return SCOPE_TRACK;
+	if (target_type == 50)                      return SCOPE_ALBUM;
+	if (target_type == 60)                      return SCOPE_EDITION;
+	return -1;
+}
+
 int
 mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
                  struct song_tags *out)
@@ -736,71 +793,8 @@ mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
 			if ((tag_end = ebml_descend(fd, MKV_TAG)) == -1)
 				break;
 
-			/* Read Targets. */
-			uint32_t target_type = 50;
-			bool has_any_chapter = false, has_matching_chapter = false;
-			bool has_matching_track = false;
-
-			if (ebml_peek(fd) == MKV_TARGETS) {
-				off_t targets_end;
-				if ((targets_end = ebml_descend(fd, MKV_TARGETS)) == -1) {
-					seek(fd, tag_end);
-					continue;
-				}
-				while (pos(fd) < targets_end) {
-					uint64_t tmp = 0;
-					switch (ebml_peek(fd)) {
-					case MKV_TARGETTYPEVALUE:
-						ebml_readuint(fd, MKV_TARGETTYPEVALUE, &target_type);
-						break;
-					case MKV_TAGCHAPTERUID:
-						if (ebml_readuint(fd, MKV_TAGCHAPTERUID, &tmp)) {
-							has_any_chapter = true;
-							if (tmp == chapter_uid)
-								has_matching_chapter = true;
-						}
-						break;
-					case MKV_TAGTRACKUID:
-						if (ebml_readuint(fd, MKV_TAGTRACKUID, &tmp)) {
-							if (tmp == track_uid)
-							has_matching_track = true;
-						}
-						break;
-					default:
-						ebml_skip(fd, EBML_ANY_ELEMENT);
-						break;
-					}
-				}
-			}
-
-			/* Determine scope.
-			 *
-			 * Chapter UIDs are specific (they identify an
-			 * individual song): skip any Tag whose chapter UIDs
-			 * are all for other chapters.
-			 *
-			 * Track UIDs, however, identify the audio track that
-			 * carries all songs in the container.  Files that
-			 * have been remuxed often end up with a TagTrackUID
-			 * that no longer matches the TrackUID in the Tracks
-			 * element.  Fall back to TargetTypeValue in that
-			 * case rather than silently discarding the tag. */
-			int scope;
-			if (has_matching_chapter) {
-				scope = SCOPE_CHAPTER;
-			} else if (has_any_chapter) {
-				/* Chapter UIDs present but none match — skip. */
-				seek(fd, tag_end);
-				continue;
-			} else if (has_matching_track) {
-				scope = SCOPE_TRACK;
-			} else if (target_type == 30) {
-				scope = SCOPE_TRACK;
-			} else if (target_type == 50) {
-				scope = SCOPE_ALBUM;
-			} else if (target_type == 60) {
-				scope = SCOPE_EDITION;
-			} else {
+			int scope = tag_scope(fd, chapter_uid, track_uid);
+			if (scope < 0) {
 				seek(fd, tag_end);
 				continue;
 			}
@@ -839,6 +833,69 @@ mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
 	return 1;
 }
 
+/* Parse one AttachedFile element body (fd at the first child, file_end is
+ * the element boundary).  Returns 1 if the file is an image and *out was
+ * filled, 0 if it is not an image, -1 on a parse error. */
+static int
+read_attached_file(int fd, off_t file_end, struct mkv_attachment *out)
+{
+	char   mime[64]      = {0};
+	char   filename[256] = {0};
+	off_t  data_off      = 0;
+	size_t data_sz       = 0;
+
+	while (pos(fd) < file_end) {
+		off_t  el_end;
+		size_t n;
+
+		switch (ebml_peek(fd)) {
+		case MKV_FILEMEDIATYPE:
+			if ((el_end = ebml_descend(fd, MKV_FILEMEDIATYPE)) == -1)
+				return -1;
+			n = (size_t)(el_end - pos(fd));
+			if (n >= sizeof mime) n = sizeof mime - 1;
+			if (read(fd, mime, n) != (ssize_t)n) return -1;
+			mime[n] = '\0';
+			seek(fd, el_end);
+			break;
+		case MKV_FILENAME:
+			if ((el_end = ebml_descend(fd, MKV_FILENAME)) == -1)
+				return -1;
+			n = (size_t)(el_end - pos(fd));
+			if (n >= sizeof filename) n = sizeof filename - 1;
+			if (read(fd, filename, n) != (ssize_t)n) return -1;
+			filename[n] = '\0';
+			seek(fd, el_end);
+			break;
+		case MKV_FILEDATA:
+			if ((el_end = ebml_descend(fd, MKV_FILEDATA)) == -1)
+				return -1;
+			data_off = pos(fd);
+			data_sz  = (size_t)(el_end - data_off);
+			seek(fd, el_end);
+			break;
+		default:
+			ebml_skip(fd, EBML_ANY_ELEMENT);
+			break;
+		}
+	}
+
+	if (strncmp(mime, "image/", 6) != 0 || data_sz == 0)
+		return 0;
+
+	*out = (struct mkv_attachment){
+		.data_off = data_off,
+		.data_sz  = data_sz,
+	};
+	if (filename[0])
+		memcpy(out->filename, filename, sizeof out->filename);
+	else
+		snprintf(out->filename, sizeof out->filename,
+		         "cover.%s", strchr(mime, '/') + 1);
+	memcpy(out->mime, mime, sizeof out->mime);
+	return 1;
+}
+
 int
 mkv_findcoverart(int fd, struct mkv_attachment *out)
 {
@@ -856,60 +913,11 @@ mkv_findcoverart(int fd, struct mkv_attachment *out)
 		if ((file_end = ebml_descend(fd, MKV_ATTACHEDFILE)) == -1)
 			goto err;
 
-		char   mime[64]      = {0};
-		char   filename[256] = {0};
-		off_t  data_off      = 0;
-		size_t data_sz       = 0;
-
-		while (pos(fd) < file_end) {
-			off_t  el_end;
-			size_t n;
-
-			switch (ebml_peek(fd)) {
-			case MKV_FILEMEDIATYPE:
-				if ((el_end = ebml_descend(fd, MKV_FILEMEDIATYPE)) == -1)
-					goto err;
-				n = (size_t)(el_end - pos(fd));
-				if (n >= sizeof mime) n = sizeof mime - 1;
-				if (read(fd, mime, n) != (ssize_t)n) goto err;
-				mime[n] = '\0';
-				seek(fd, el_end);
-				break;
-			case MKV_FILENAME:
-				if ((el_end = ebml_descend(fd, MKV_FILENAME)) == -1)
-					goto err;
-				n = (size_t)(el_end - pos(fd));
-				if (n >= sizeof filename) n = sizeof filename - 1;
-				if (read(fd, filename, n) != (ssize_t)n) goto err;
-				filename[n] = '\0';
-				seek(fd, el_end);
-				break;
-			case MKV_FILEDATA:
-				if ((el_end = ebml_descend(fd, MKV_FILEDATA)) == -1)
-					goto err;
-				data_off = pos(fd);
-				data_sz  = (size_t)(el_end - data_off);
-				seek(fd, el_end);
-				break;
-			default:
-				ebml_skip(fd, EBML_ANY_ELEMENT);
-				break;
-			}
-		}
-
-		if (strncmp(mime, "image/", 6) == 0 && data_sz > 0) {
-			*out = (struct mkv_attachment){
-				.data_off = data_off,
-				.data_sz  = data_sz,
-			};
-			if (filename[0])
-				memcpy(out->filename, filename, sizeof out->filename);
-			else
-				snprintf(out->filename, sizeof out->filename,
-				         "cover.%s", strchr(mime, '/') + 1);
-			memcpy(out->mime, mime, sizeof out->mime);
+		int r = read_attached_file(fd, file_end, out);
+		if (r > 0)
 			return 1;
-		}
+		if (r < 0)
+			goto err;
 
 		seek(fd, file_end);
 	}
