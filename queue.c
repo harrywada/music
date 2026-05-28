@@ -74,9 +74,12 @@ insert_at(struct queue q, struct song s, int idx)
 	if (idx >= 0) {
 		pos = MIN((unsigned int) idx, n);
 	} else {
-		/* -1 = last element (same as push), -2 = second-to-last, etc. */
+		/* -1 = last element (same as push), -2 = second-to-last, etc.
+		 * Out-of-range negative indices clamp to position 1 (just after
+		 * the head) rather than position 0, so the active song is always
+		 * preserved.  For an empty queue the only valid position is 0. */
 		unsigned int back = (unsigned int) (-idx - 1);
-		pos = back >= n ? (n > 0 ? 1 : 0) : n - back;
+		pos = back >= n ? (n > 0 ? 1u : 0u) : n - back;
 	}
 
 	/*

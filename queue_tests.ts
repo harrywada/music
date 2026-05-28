@@ -122,9 +122,14 @@ const struct {
 	{ { .path = "/c.mka", .uid = 3 }, -1, 2 },
 	/* Index 1: song appears at position 1. */
 	{ { .path = "/c.mka", .uid = 3 }, 1, 1 },
+	/* Index -3 with 2 existing songs: out of range, clamps to position 1
+	 * (just after head) rather than displacing the active song. */
+	{ { .path = "/c.mka", .uid = 3 }, -3, 1 },
+	/* Large negative: also clamps to position 1. */
+	{ { .path = "/c.mka", .uid = 3 }, -100, 1 },
 };
 
-#test-loop(0, 3) insert_at_works
+#test-loop(0, 5) insert_at_works
 	struct queue q;
 	ck_assert(mkqueue(&q, 4));
 	/* Paths must be heap-allocated because cleanup_queue calls cleanup_song. */
@@ -149,22 +154,6 @@ const struct {
 	ck_assert_uint_eq(at_pos.uid, s.uid);
 	cleanup_queue(&q);
 
-#test insert_at_clamps_oob_negative_to_after_head
-	struct queue q;
-	ck_assert(mkqueue(&q, 4));
-	struct song a = { .path = strdup("/a.mka"), .uid = 1 };
-	struct song b = { .path = strdup("/b.mka"), .uid = 2 };
-	q = push(q, a);
-	/*
-	 * idx=-2 with n=1: back=1 >= n=1.  Must clamp to pos=1, not
-	 * pos=0, so the head (active song 'a') is never displaced.
-	 */
-	q = insert_at(q, b, -2);
-	ck_assert_uint_eq(qsize(q), 2);
-	ck_assert_str_eq(q.data[q.head % q.size].path, a.path);
-	ck_assert_str_eq(q.data[(q.head + 1) % q.size].path, b.path);
-	cleanup_queue(&q);
-
 #test insert_at_on_empty_queue
 	struct queue q;
 	ck_assert(mkqueue(&q, 4));
@@ -175,6 +164,29 @@ const struct {
 	q = pop(q, &got);
 	ck_assert_str_eq(got.path, s.path);
 	ck_assert_uint_eq(got.uid, s.uid);
+	free(got.path);
+	cleanup_queue(&q);
+
+/* Out-of-range negative on a 1-element queue: must clamp to position 1,
+ * not 0, to avoid displacing the existing element to the back. */
+#test insert_at_negative_oob_preserves_order
+	struct queue q;
+	ck_assert(mkqueue(&q, 4));
+	struct song songs[] = {
+		{ .path = strdup("/a.mka"), .uid = 1 },
+		{ .path = strdup("/b.mka"), .uid = 2 },
+	};
+	q = push(q, songs[0]);
+	q = insert_at(q, songs[1], -2);
+	ck_assert_uint_eq(qsize(q), 2);
+	struct song got;
+	q = pop(q, &got);
+	ck_assert_str_eq(got.path, songs[0].path);
+	ck_assert_uint_eq(got.uid, songs[0].uid);
+	free(got.path);
+	q = pop(q, &got);
+	ck_assert_str_eq(got.path, songs[1].path);
+	ck_assert_uint_eq(got.uid, songs[1].uid);
 	free(got.path);
 	cleanup_queue(&q);
 
