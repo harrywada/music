@@ -37,7 +37,13 @@
 #define MKV_CUECLUSTERPOSITION 0xf1
 #define MKV_CUERELATIVEPOSITION 0xf0
 
-#define MKV_ATTACHMENTS 0x1941a469
+#define MKV_ATTACHMENTS     0x1941a469
+#define MKV_ATTACHEDFILE    0x61a7
+#define MKV_FILEDESCRIPTION 0x467e
+#define MKV_FILENAME        0x466e
+#define MKV_FILEMEDIATYPE   0x4660
+#define MKV_FILEDATA        0x465c
+#define MKV_FILEUID         0x46ae
 
 #define MKV_CHAPTERS 0x1043a770
 #define MKV_EDITIONENTRY 0x45b9
@@ -179,11 +185,26 @@ int mkv_readblock(int, struct mkv_block *); /* Only reads header; data remains. 
 [[gnu::fd_arg_read(1)]]
 int mkv_readchapteratom(int, struct mkv_chapter *);
 
+/* Result of mkv_findcoverart(). Strings are NUL-terminated and truncated
+   silently to fit. data_off is the absolute file offset of the FileData
+   body; data_sz is its byte count. */
+struct mkv_attachment {
+	char   mime[64];
+	char   filename[256];
+	off_t  data_off;
+	size_t data_sz;
+};
+
 [[gnu::fd_arg_read(1)]]
 int mkv_findchapter(int, uint64_t, struct mkv_chapter *);
 [[gnu::fd_arg_read(1)]]
 int mkv_findtrack(int, const uint64_t [static TRACKS_MAX], struct mkv_track *);
 [[gnu::fd_arg_read(1)]]
 int mkv_findcue(int, uint64_t, uint64_t, uint32_t, off_t *);
+/* fd positioned by caller at MKV_ATTACHMENTS. Finds the first AttachedFile
+   whose FileMediaType begins with "image/". Returns 1 and fills *out on
+   success, 0 if none found or on error. */
+[[gnu::fd_arg_read(1), gnu::nonnull(2)]]
+int mkv_findcoverart(int, struct mkv_attachment *);
 [[nodiscard, gnu::fd_arg_read(1)]]
 ssize_t mkv_nextframe(int, struct mkv_cursor *, const struct mkv_range *);

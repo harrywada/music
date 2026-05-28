@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h> /* strcasecmp(3). */
@@ -836,4 +837,84 @@ mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
 	song_tags_free(&tt);
 	song_tags_free(&at);
 	return 1;
+}
+
+int
+mkv_findcoverart(int fd, struct mkv_attachment *out)
+{
+	off_t begin = pos(fd);
+	off_t att_end, file_end;
+
+	if ((att_end = ebml_descend(fd, MKV_ATTACHMENTS)) == -1)
+		goto err;
+
+	while (pos(fd) < att_end) {
+		if (ebml_peek(fd) != MKV_ATTACHEDFILE) {
+			ebml_skip(fd, EBML_ANY_ELEMENT);
+			continue;
+		}
+		if ((file_end = ebml_descend(fd, MKV_ATTACHEDFILE)) == -1)
+			goto err;
+
+		char   mime[64]      = {0};
+		char   filename[256] = {0};
+		off_t  data_off      = 0;
+		size_t data_sz       = 0;
+
+		while (pos(fd) < file_end) {
+			off_t  el_end;
+			size_t n;
+
+			switch (ebml_peek(fd)) {
+			case MKV_FILEMEDIATYPE:
+				if ((el_end = ebml_descend(fd, MKV_FILEMEDIATYPE)) == -1)
+					goto err;
+				n = (size_t)(el_end - pos(fd));
+				if (n >= sizeof mime) n = sizeof mime - 1;
+				if (read(fd, mime, n) != (ssize_t)n) goto err;
+				mime[n] = '\0';
+				seek(fd, el_end);
+				break;
+			case MKV_FILENAME:
+				if ((el_end = ebml_descend(fd, MKV_FILENAME)) == -1)
+					goto err;
+				n = (size_t)(el_end - pos(fd));
+				if (n >= sizeof filename) n = sizeof filename - 1;
+				if (read(fd, filename, n) != (ssize_t)n) goto err;
+				filename[n] = '\0';
+				seek(fd, el_end);
+				break;
+			case MKV_FILEDATA:
+				if ((el_end = ebml_descend(fd, MKV_FILEDATA)) == -1)
+					goto err;
+				data_off = pos(fd);
+				data_sz  = (size_t)(el_end - data_off);
+				seek(fd, el_end);
+				break;
+			default:
+				ebml_skip(fd, EBML_ANY_ELEMENT);
+				break;
+			}
+		}
+
+		if (strncmp(mime, "image/", 6) == 0 && data_sz > 0) {
+			*out = (struct mkv_attachment){
+				.data_off = data_off,
+				.data_sz  = data_sz,
+			};
+			if (filename[0])
+				memcpy(out->filename, filename, sizeof out->filename);
+			else
+				snprintf(out->filename, sizeof out->filename,
+				         "cover.%s", strchr(mime, '/') + 1);
+			memcpy(out->mime, mime, sizeof out->mime);
+			return 1;
+		}
+
+		seek(fd, file_end);
+	}
+
+err:
+	seek(fd, begin);
+	return 0;
 }
