@@ -22,7 +22,7 @@
 #define MPRIS_OBJECT  "/org/mpris/MediaPlayer2"
 #define MPRIS_ROOT    "org.mpris.MediaPlayer2"
 #define MPRIS_PLAYER  "org.mpris.MediaPlayer2.Player"
-#define MPRIS_NAME    "org.mpris.MediaPlayer2.musicd"
+#define MPRIS_NAME    "org.mpris.MediaPlayer2.music"
 #define MPRIS_NOTRACK "/org/mpris/MediaPlayer2/TrackList/NoTrack"
 #define MPRIS_TRACK   "/org/mpris/MediaPlayer2/Track"
 
@@ -245,7 +245,7 @@ prop_identity(sd_bus *, const char *, const char *,
               const char *, sd_bus_message *reply,
               void *, sd_bus_error *)
 {
-	return sd_bus_message_append(reply, "s", "musicd");
+	return sd_bus_message_append(reply, "s", "music");
 }
 
 static int

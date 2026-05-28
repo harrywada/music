@@ -7,7 +7,7 @@
 struct mpris;
 
 /* Open a session-bus connection and register MPRIS 2.2 objects.
-   D-Bus well-known name: org.mpris.MediaPlayer2.musicd
+   D-Bus well-known name: org.mpris.MediaPlayer2.music
    initial is the daemon's current state, used to seed the cached
    snapshot so property reads are accurate from the first poll cycle.
    Returns NULL (with syslog warning) on failure. */
