@@ -30,7 +30,7 @@ _tests.ts_tests.c:
 	checkmk $< >$@
 
 LDFLAGS += -lcheck
-cmds_tests: cmds_tests.c cmds.o state.o queue.o song.o utils.o
+cmds_tests: cmds_tests.c cmds.o state.o queue.o song.o utils.o ebml.o matroska.o
 filter_tests: filter_tests.c filter.o matroska.o ebml.o utils.o
 format_tests: format_tests.c format.o matroska.o ebml.o utils.o
 ebml_tests: ebml_tests.c ebml.o utils.o
