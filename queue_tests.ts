@@ -149,6 +149,22 @@ const struct {
 	ck_assert_uint_eq(at_pos.uid, s.uid);
 	cleanup_queue(&q);
 
+#test insert_at_clamps_oob_negative_to_after_head
+	struct queue q;
+	ck_assert(mkqueue(&q, 4));
+	struct song a = { .path = strdup("/a.mka"), .uid = 1 };
+	struct song b = { .path = strdup("/b.mka"), .uid = 2 };
+	q = push(q, a);
+	/*
+	 * idx=-2 with n=1: back=1 >= n=1.  Must clamp to pos=1, not
+	 * pos=0, so the head (active song 'a') is never displaced.
+	 */
+	q = insert_at(q, b, -2);
+	ck_assert_uint_eq(qsize(q), 2);
+	ck_assert_str_eq(q.data[q.head % q.size].path, a.path);
+	ck_assert_str_eq(q.data[(q.head + 1) % q.size].path, b.path);
+	cleanup_queue(&q);
+
 #test insert_at_on_empty_queue
 	struct queue q;
 	ck_assert(mkqueue(&q, 4));

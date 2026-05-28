@@ -76,7 +76,7 @@ insert_at(struct queue q, struct song s, int idx)
 	} else {
 		/* -1 = last element (same as push), -2 = second-to-last, etc. */
 		unsigned int back = (unsigned int) (-idx - 1);
-		pos = back >= n ? 0 : n - back;
+		pos = back >= n ? (n > 0 ? 1 : 0) : n - back;
 	}
 
 	/*
