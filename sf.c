@@ -32,10 +32,10 @@ open_mkv(const char *path, struct mkv_seekinfo *si)
 	return fd;
 }
 
-static void
-eval_song(const char *path, unsigned long uid,
-          const struct filter_node *filter)
+static int
+eval_song(const char *path, unsigned long uid, void *ud)
 {
+	const struct filter_node *filter = ud;
 	int fd;
 	struct mkv_seekinfo si;
 	struct mkv_chapter  chapter;
@@ -43,7 +43,7 @@ eval_song(const char *path, unsigned long uid,
 	struct song_tags    tags = {0};
 	bool print = false;
 
-	if ((fd = open_mkv(path, &si)) == -1) return;
+	if ((fd = open_mkv(path, &si)) == -1) return 1;
 
 	if (!si.chapters) {
 		warn(0, "sf: no chapters in %s", path);
@@ -79,77 +79,7 @@ done:
 	close(fd);
 	if (print)
 		printf("%s#%lu\n", path, uid);
-}
-
-struct sf_ctx {
-	const char              *path;
-	int                      fd;
-	struct mkv_seekinfo      si;
-	const struct filter_node *filter;
-	bool                     have_track; /* audio track pre-fetched below */
-	struct mkv_track         track;
-};
-
-static int
-sf_chapter_cb(const struct mkv_chapter *ch, void *ud)
-{
-	struct sf_ctx   *ctx = ud;
-	struct mkv_track track;
-	struct song_tags tags = {0};
-	bool print = false;
-
-	/* Use the pre-fetched audio track; fall back to per-chapter lookup
-	   only when the file has no cached track (should not normally happen). */
-	if (ctx->have_track) {
-		track = ctx->track;
-	} else {
-		if (!ctx->si.tracks) goto done;
-		seek(ctx->fd, ctx->si.segment + ctx->si.tracks);
-		if (!mkv_findtrack(ctx->fd, ch->track_uids, &track)) goto done;
-	}
-
-	if (ctx->si.tags) {
-		seek(ctx->fd, ctx->si.segment + ctx->si.tags);
-		mkv_readsongtags(ctx->fd, ch->uid, track.uid, &tags);
-	}
-
-	print = !ctx->filter || filter_eval(ctx->filter, &tags);
-
-done:
-	song_tags_free(&tags);
-	if (print)
-		printf("%s#%lu\n", ctx->path, (unsigned long)ch->uid);
 	return 1;
-}
-
-static void
-eval_file(const char *path, const struct filter_node *filter)
-{
-	struct mkv_seekinfo si;
-	int fd;
-
-	if ((fd = open_mkv(path, &si)) == -1) return;
-
-	if (!si.chapters) {
-		warn(0, "sf: no chapters in %s", path);
-		close(fd);
-		return;
-	}
-
-	/* Pre-fetch the first audio track once; all chapters in a music
-	   container share a single audio track, so this avoids re-reading
-	   the Tracks section for every chapter. */
-	static const uint64_t zero_uids[TRACKS_MAX];
-	struct sf_ctx ctx = { .path = path, .fd = fd, .si = si,
-	                      .filter = filter };
-	if (si.tracks) {
-		seek(fd, si.segment + si.tracks);
-		ctx.have_track = mkv_findtrack(fd, zero_uids, &ctx.track);
-	}
-
-	seek(fd, si.segment + si.chapters);
-	mkv_visitchapters(fd, sf_chapter_cb, &ctx);
-	close(fd);
 }
 
 int
@@ -168,18 +98,7 @@ main(int argc, char *argv[])
 		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
 			line[--len] = '\0';
 		if (!len) continue;
-
-		if (strchr(line, '#')) {
-			struct song song;
-			if (!parse_song(line, &song)) {
-				warn(0, "sf: invalid song: %s", line);
-				continue;
-			}
-			eval_song(song.path, song.uid, filter);
-			cleanup_song(&song);
-		} else {
-			eval_file(line, filter);
-		}
+		expand_song(line, eval_song, filter);
 	}
 
 	free(line);

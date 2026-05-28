@@ -32,17 +32,17 @@ open_mkv(const char *path, struct mkv_seekinfo *si)
 	return fd;
 }
 
-static void
-eval_song(const char *path, unsigned long uid,
-          const struct format *fmt)
+static int
+eval_song(const char *path, unsigned long uid, void *ud)
 {
+	const struct format *fmt = ud;
 	int fd;
 	struct mkv_seekinfo si;
 	struct mkv_chapter  chapter;
 	struct mkv_track    track;
 	struct song_tags    tags = {0};
 
-	if ((fd = open_mkv(path, &si)) == -1) return;
+	if ((fd = open_mkv(path, &si)) == -1) return 1;
 
 	if (!si.chapters) {
 		warn(0, "sp: no chapters in %s", path);
@@ -76,57 +76,7 @@ eval_song(const char *path, unsigned long uid,
 done:
 	song_tags_free(&tags);
 	close(fd);
-}
-
-struct sp_ctx {
-	const char         *path;
-	int                 fd;
-	struct mkv_seekinfo si;
-	const struct format *fmt;
-};
-
-static int
-sp_chapter_cb(const struct mkv_chapter *ch, void *ud)
-{
-	struct sp_ctx   *ctx  = ud;
-	struct mkv_track track;
-	struct song_tags tags = {0};
-
-	if (!ctx->si.tracks) goto done;
-
-	seek(ctx->fd, ctx->si.segment + ctx->si.tracks);
-	if (!mkv_findtrack(ctx->fd, ch->track_uids, &track)) goto done;
-
-	if (ctx->si.tags) {
-		seek(ctx->fd, ctx->si.segment + ctx->si.tags);
-		mkv_readsongtags(ctx->fd, ch->uid, track.uid, &tags);
-	}
-
-	format_print(ctx->fmt, &tags, STDOUT_FILENO);
-
-done:
-	song_tags_free(&tags);
 	return 1;
-}
-
-static void
-eval_file(const char *path, const struct format *fmt)
-{
-	struct mkv_seekinfo si;
-	int fd;
-
-	if ((fd = open_mkv(path, &si)) == -1) return;
-
-	if (!si.chapters) {
-		warn(0, "sp: no chapters in %s", path);
-		close(fd);
-		return;
-	}
-
-	seek(fd, si.segment + si.chapters);
-	struct sp_ctx ctx = { .path = path, .fd = fd, .si = si, .fmt = fmt };
-	mkv_visitchapters(fd, sp_chapter_cb, &ctx);
-	close(fd);
 }
 
 int
@@ -148,18 +98,7 @@ main(int argc, char *argv[])
 		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
 			line[--len] = '\0';
 		if (!len) continue;
-
-		if (strchr(line, '#')) {
-			struct song song;
-			if (!parse_song(line, &song)) {
-				warn(0, "sp: invalid song: %s", line);
-				continue;
-			}
-			eval_song(song.path, song.uid, fmt);
-			cleanup_song(&song);
-		} else {
-			eval_file(line, fmt);
-		}
+		expand_song(line, eval_song, fmt);
 	}
 
 	free(line);

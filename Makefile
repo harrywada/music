@@ -36,9 +36,9 @@ format_tests: format_tests.c format.o matroska.o ebml.o utils.o
 ebml_tests: ebml_tests.c ebml.o utils.o
 matroska_tests: matroska_tests.c matroska.o ebml.o utils.o
 queue_tests: queue_tests.c queue.o song.o utils.o
-song_tests: song_tests.c song.o utils.o
+song_tests: song_tests.c song.o utils.o ebml.o matroska.o
 utils_tests: utils_tests.c utils.o
 
 .PHONY: clean
 clean:
-	rm -rf musicd play sq sf sc sp *_tests *.o
+	rm -rf musicd play sq sf sc sp *_tests *_tests.c *.o
