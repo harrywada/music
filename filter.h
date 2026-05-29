@@ -1,4 +1,4 @@
-/* Include: ebml.h, matroska.h, regex.h, stdbool.h, stdint.h, sys/types.h. */
+/* Include: tags.h, regex.h, stdbool.h. */
 #pragma once
 
 #include <regex.h>

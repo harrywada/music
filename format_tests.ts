@@ -4,8 +4,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include "ebml.h"
-#include "matroska.h"
+#include "tags.h"
 #include "format.h"
 
 /* ── Test helpers ──────────────────────────────────────── */

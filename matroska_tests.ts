@@ -60,16 +60,6 @@ wfloat64(int fd, uint32_t id, double val)
 	wbe(fd, bits, 8);
 }
 
-/* Write a UTF-8 string element. */
-static void
-wstring(int fd, uint32_t id, const char *s)
-{
-	size_t len = strlen(s);
-	wid(fd, id);
-	wlen(fd, len);
-	write(fd, s, len);
-}
-
 /* Begin a master element; returns a cookie for end_master. */
 struct mstart { off_t len_pos, data_start; };
 
@@ -1103,103 +1093,6 @@ count_visit(const struct mkv_chapter *c, void *ud)
 	ck_assert(!mkv_visitchapters(fd, count_visit, &count));
 	ck_assert_int_eq(count, 0);
 
-/* ================================================================== */
-/* mkv_readsongtags                                                    */
-/* ================================================================== */
-
-#tcase mkv_readsongtags
-
-#test readsongtags_album_tags_apply_to_all_songs
-	struct song_tags tags = {0};
-
-	struct mstart ts = begin_master(fd, MKV_TAGS);
-	  struct mstart t1 = begin_master(fd, MKV_TAG);
-	    struct mstart tgt = begin_master(fd, MKV_TARGETS);
-	      wuint(fd, MKV_TARGETTYPEVALUE, 50, 1);
-	    end_master(fd, tgt);
-	    struct mstart st = begin_master(fd, MKV_SIMPLETAG);
-	      wstring(fd, MKV_TAGNAME,   "ARTIST");
-	      wstring(fd, MKV_TAGSTRING, "The Band");
-	    end_master(fd, st);
-	  end_master(fd, t1);
-	end_master(fd, ts);
-	lseek(fd, 0, SEEK_SET);
-
-	mkv_readsongtags(fd, 0xAA, 0x01, &tags);
-	ck_assert_uint_eq(tags.fields[TAG_ARTIST].count, 1);
-	ck_assert_str_eq(tags.fields[TAG_ARTIST].vals[0], "The Band");
-	song_tags_free(&tags);
-
-#test readsongtags_track_uid_scopes_tags_to_matching_track
-	/* Two tracks with distinct artists; verify only the matching one appears. */
-	struct song_tags tags = {0};
-
-	struct mstart ts = begin_master(fd, MKV_TAGS);
-	  /* Tag targeting track 0xAA (disc 1). */
-	  struct mstart t1 = begin_master(fd, MKV_TAG);
-	    struct mstart tgt1 = begin_master(fd, MKV_TARGETS);
-	      wuint(fd, MKV_TARGETTYPEVALUE, 30,   1);
-	      wuint(fd, MKV_TAGTRACKUID,    0xAA,  4);
-	    end_master(fd, tgt1);
-	    struct mstart st1 = begin_master(fd, MKV_SIMPLETAG);
-	      wstring(fd, MKV_TAGNAME,   "ARTIST");
-	      wstring(fd, MKV_TAGSTRING, "Artist A");
-	    end_master(fd, st1);
-	  end_master(fd, t1);
-	  /* Tag targeting track 0xBB (disc 2). */
-	  struct mstart t2 = begin_master(fd, MKV_TAG);
-	    struct mstart tgt2 = begin_master(fd, MKV_TARGETS);
-	      wuint(fd, MKV_TARGETTYPEVALUE, 30,   1);
-	      wuint(fd, MKV_TAGTRACKUID,    0xBB,  4);
-	    end_master(fd, tgt2);
-	    struct mstart st2 = begin_master(fd, MKV_SIMPLETAG);
-	      wstring(fd, MKV_TAGNAME,   "ARTIST");
-	      wstring(fd, MKV_TAGSTRING, "Artist B");
-	    end_master(fd, st2);
-	  end_master(fd, t2);
-	end_master(fd, ts);
-	lseek(fd, 0, SEEK_SET);
-
-	/* Reading for track 0xBB: must see only "Artist B". */
-	mkv_readsongtags(fd, 0, 0xBB, &tags);
-	ck_assert_uint_eq(tags.fields[TAG_ARTIST].count, 1);
-	ck_assert_str_eq(tags.fields[TAG_ARTIST].vals[0], "Artist B");
-	song_tags_free(&tags);
-
-#test readsongtags_chapter_tag_takes_priority_over_track_tag
-	/* Chapter-level title overrides a track-level title. */
-	struct song_tags tags = {0};
-
-	struct mstart ts = begin_master(fd, MKV_TAGS);
-	  /* Track-level tag. */
-	  struct mstart t1 = begin_master(fd, MKV_TAG);
-	    struct mstart tgt1 = begin_master(fd, MKV_TARGETS);
-	      wuint(fd, MKV_TARGETTYPEVALUE, 30,   1);
-	      wuint(fd, MKV_TAGTRACKUID,    0xAA,  4);
-	    end_master(fd, tgt1);
-	    struct mstart st1 = begin_master(fd, MKV_SIMPLETAG);
-	      wstring(fd, MKV_TAGNAME,   "TITLE");
-	      wstring(fd, MKV_TAGSTRING, "Track Title");
-	    end_master(fd, st1);
-	  end_master(fd, t1);
-	  /* Chapter-level tag — takes priority. */
-	  struct mstart t2 = begin_master(fd, MKV_TAG);
-	    struct mstart tgt2 = begin_master(fd, MKV_TARGETS);
-	      wuint(fd, MKV_TAGCHAPTERUID, 0xCC, 4);
-	    end_master(fd, tgt2);
-	    struct mstart st2 = begin_master(fd, MKV_SIMPLETAG);
-	      wstring(fd, MKV_TAGNAME,   "TITLE");
-	      wstring(fd, MKV_TAGSTRING, "Chapter Title");
-	    end_master(fd, st2);
-	  end_master(fd, t2);
-	end_master(fd, ts);
-	lseek(fd, 0, SEEK_SET);
-
-	mkv_readsongtags(fd, 0xCC, 0xAA, &tags);
-	ck_assert_uint_eq(tags.fields[TAG_TITLE].count, 1);
-	ck_assert_str_eq(tags.fields[TAG_TITLE].vals[0], "Chapter Title");
-	song_tags_free(&tags);
-
 #main-pre
 	tcase_add_checked_fixture(tc1_1,  fd_setup, fd_teardown);
 	tcase_add_checked_fixture(tc1_2,  fd_setup, fd_teardown);
@@ -1213,4 +1106,3 @@ count_visit(const struct mkv_chapter *c, void *ud)
 	tcase_add_checked_fixture(tc1_10, fd_setup, fd_teardown);
 	tcase_add_checked_fixture(tc1_11, fd_setup, fd_teardown);
 	tcase_add_checked_fixture(tc1_12, fd_setup, fd_teardown);
-	tcase_add_checked_fixture(tc1_13, fd_setup, fd_teardown);

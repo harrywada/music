@@ -14,6 +14,7 @@
 #include "cmds.h"
 #include "ebml.h"
 #include "matroska.h"
+#include "tags.h"
 #include "mpris.h"
 #include "queue.h"
 #include "song.h"
