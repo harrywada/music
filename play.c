@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include "matroska.h"
+#include "matroska_utils.h"
 
 /* Short helper functions to reduce a bit of redundancy. */
 #define SND(cmp, exit, fn, ...) \

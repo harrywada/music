@@ -11,6 +11,7 @@
 
 #include "ebml.h"
 #include "matroska.h"
+#include "matroska_utils.h"
 #include "song.h"
 #include "utils.h"
 

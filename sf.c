@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include "ebml.h"
 #include "matroska.h"
+#include "matroska_utils.h"
 #include "tags.h"
 #include "filter.h"
 #include "song.h"
