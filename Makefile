@@ -2,8 +2,9 @@
 TRACKS_MAX    = 4
 VINT_OCTET_MAX = 8
 MPRIS         = 1
+PLAY_PATH     = ./play
 
-CFLAGS += -std=c23 -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200809L -DPLAY_PATH=\"./play\" \
+CFLAGS += -std=c23 -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200809L -DPLAY_PATH=\"$(PLAY_PATH)\" \
           -Wall -Wextra -Werror -Wno-empty-body \
           -isystem /usr/include/alsa/ \
           -DTRACKS_MAX="$(TRACKS_MAX)" \
@@ -40,6 +41,16 @@ tags_tests: tags_tests.c tags.o ebml.o matroska.o utils.o
 queue_tests: queue_tests.c queue.o song.o utils.o ebml.o matroska.o matroska_utils.o
 song_tests: song_tests.c song.o utils.o ebml.o matroska.o matroska_utils.o
 utils_tests: utils_tests.c utils.o
+
+BINDIR    = /usr/bin
+LIBEXECDIR = /usr/libexec/music
+
+.PHONY: install
+install: play sq sf sc sp
+	rm -f musicd musicd.o
+	$(MAKE) musicd PLAY_PATH=$(LIBEXECDIR)/play
+	install -Dm755 play $(LIBEXECDIR)/play
+	install -m755 musicd sq sf sc sp $(BINDIR)/
 
 .PHONY: clean
 clean:
