@@ -52,7 +52,7 @@ mkv_findtrack(int fd, const uint64_t uids[static TRACKS_MAX], struct mkv_track *
 		if (any)
 			return 1;
 		for (int i = 0; i < TRACKS_MAX; i += 1)
-			if (t->num == uids[i])
+			if (t->num == uids[i] || t->uid == uids[i])
 				return 1;
 	}
 }

@@ -221,19 +221,39 @@ fd_teardown(void)
 	ck_assert_uint_eq(t.bps,      16);
 	ck_assert(t.rate == 44100.0);
 
+#test findtrack_finds_audio_track_by_uid
+	/* Old-style files store a track UID in ChapterTrackUID (0x89);
+	   mkv_findtrack must match against both t->num and t->uid. */
+	struct mkv_track t;
+	uint64_t uids[TRACKS_MAX] = { 0xF001, 0, 0, 0 }; /* track UID */
+
+	struct mstart tr = begin_master(fd, MKV_TRACKS);
+	  struct mstart te = begin_master(fd, MKV_TRACKENTRY);
+	    wuint(fd, MKV_TRACKNUMBER,  2,      1); /* num != uids[0] */
+	    wuint(fd, MKV_TRACKUID,     0xF001, 8); /* uid == uids[0] */
+	    wuint(fd, MKV_TRACKTYPE,    AUDIO,  1);
+	    wuint(fd, MKV_FLAGENABLED,  1,      1);
+	  end_master(fd, te);
+	end_master(fd, tr);
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(mkv_findtrack(fd, uids, &t));
+	ck_assert_uint_eq(t.uid, 0xF001);
+	ck_assert_uint_eq(t.num, 2);
+
 #test findtrack_skips_non_audio_tracks
 	struct mkv_track t;
 	uint64_t uids[TRACKS_MAX] = { 0xF001, 0, 0, 0 };
 
 	struct mstart tr = begin_master(fd, MKV_TRACKS);
-	  /* Video track with matching number — must be skipped. */
+	  /* Video track with matching UID — must be skipped (not audio). */
 	  struct mstart te1 = begin_master(fd, MKV_TRACKENTRY);
 	    wuint(fd, MKV_TRACKNUMBER, 1,      1);
 	    wuint(fd, MKV_TRACKUID,    0xF001, 8);
 	    wuint(fd, MKV_TRACKTYPE,   1,      1); /* VIDEO */
 	    wuint(fd, MKV_FLAGENABLED, 1,      1);
 	  end_master(fd, te1);
-	  /* Audio track without matching UID — no match. */
+	  /* Audio track without matching number or UID — no match. */
 	  struct mstart te2 = begin_master(fd, MKV_TRACKENTRY);
 	    wuint(fd, MKV_TRACKNUMBER, 2,      1);
 	    wuint(fd, MKV_TRACKUID,    0xF002, 8);
