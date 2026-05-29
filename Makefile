@@ -10,14 +10,14 @@ CFLAGS += -std=c23 -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200809L -DPLAY_PATH=\"./pla
           -DVINT_OCTET_MAX="$(VINT_OCTET_MAX)"
 
 ifeq ($(MPRIS),1)
-MPRIS_OBJ    = mpris.o
+MPRIS_OBJ    = mpris.o tags.o
 MPRIS_CFLAGS = -DMPRIS -isystem /usr/include/elogind
 MPRIS_LFLAGS = -lelogind
 endif
 
 play: LDFLAGS += -lasound
 play: play.c ebml.o matroska.o utils.o
-musicd: musicd.c cmds.o state.o queue.o song.o utils.o $(MPRIS_OBJ) tags.o matroska.o ebml.o
+musicd: musicd.c cmds.o state.o queue.o song.o utils.o $(MPRIS_OBJ) matroska.o ebml.o
 musicd: CFLAGS  += $(MPRIS_CFLAGS)
 musicd: LDFLAGS += $(MPRIS_LFLAGS)
 sq: sq.c ebml.o matroska.o song.o utils.o
