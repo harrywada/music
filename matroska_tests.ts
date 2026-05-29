@@ -371,6 +371,21 @@ write_cuepoint(int fd, uint64_t time, uint32_t track, off_t cluster_pos)
 
 	ck_assert(!mkv_findcue(fd, 999, 100, 1, &out));
 
+#test findcue_one_track_per_cuepoint_picks_correct_track
+	/* Three cue points at the same timestamp, one per track.  Must
+	   pick the one for the requested track, not the last one read. */
+	off_t out = -1;
+
+	struct mstart cues = begin_master(fd, MKV_CUES);
+	  write_cuepoint(fd, 0, 1, 10); /* track 1 → cluster 10 */
+	  write_cuepoint(fd, 0, 2, 20); /* track 2 → cluster 20 */
+	  write_cuepoint(fd, 0, 3, 30); /* track 3 → cluster 30 */
+	end_master(fd, cues);
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(mkv_findcue(fd, 0, 1, 1, &out));
+	ck_assert_int_eq(out, 10);
+
 /* ================================================================== */
 /* mkv_nextframe                                                       */
 /* ================================================================== */

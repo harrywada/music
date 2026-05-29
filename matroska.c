@@ -418,7 +418,7 @@ mkv_findtrack(int fd, const uint64_t uids[static TRACKS_MAX], struct mkv_track *
 int
 mkv_findcue(int fd, uint64_t start, uint64_t ts_scale, uint32_t track, off_t *out)
 {
-	struct mkv_cue cue = {0};
+	off_t candidate = -1;
 	int found = 0;
 
 	if (ebml_descend(fd, MKV_CUES) == -1)
@@ -430,20 +430,20 @@ mkv_findcue(int fd, uint64_t start, uint64_t ts_scale, uint32_t track, off_t *ou
 			break;
 		if (next.time * ts_scale > start)
 			break;
-		cue = next;
-		found = 1;
+		for (int i = 0; i < TRACKS_MAX; i += 1) {
+			if (next.tracks[i].num == track) {
+				candidate = next.tracks[i].pos;
+				found = 1;
+				break;
+			}
+		}
 	}
 
 	if (!found)
 		return 0;
 
-	for (int i = 0; i < TRACKS_MAX; i += 1) {
-		if (cue.tracks[i].num == track) {
-			*out = cue.tracks[i].pos;
-			return 1;
-		}
-	}
-	return 0;
+	*out = candidate;
+	return 1;
 }
 
 ssize_t
