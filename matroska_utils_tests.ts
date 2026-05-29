@@ -527,6 +527,87 @@ write_cluster(int fd, uint64_t ts, uint32_t track, const uint8_t *data, size_t d
 
 	ck_assert_int_eq(mkv_nextframe(fd, &cur, &r), -1);
 
+#test nextframe_sets_block_ts
+	/* block_ts = ts_scale * (cluster_ts + timecode). */
+	uint8_t payload[] = { 0x00 };
+	struct mkv_range r = { .track=1, .ts_scale=1000000, .start=0, .end=0 };
+	struct mkv_cursor cur = {0};
+
+	write_cluster(fd, 100, 1, payload, sizeof payload);
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert_int_gt(mkv_nextframe(fd, &cur, &r), 0);
+	ck_assert_uint_eq(cur.block_ts, 100000000ULL); /* 1000000 * (100 + 0) */
+
+#test nextframe_truncates_end_boundary
+	/* 10 bytes PCM: sample_rate=1000, frame_sz=2 → 5 frames = 5 000 000 ns.
+	   range.end=3 000 000 ns → max=3 frames → 6 bytes; pending_skip=4.
+	   Next call drains pending_skip and returns 0 (chapter end). */
+	uint8_t data[10] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+	struct mkv_range r = {
+	    .track=1, .ts_scale=1, .start=0, .end=3000000,
+	    .sample_rate=1000, .frame_sz=2
+	};
+	struct mkv_cursor cur = {0};
+
+	write_cluster(fd, 0, 1, data, sizeof data);
+	lseek(fd, 0, SEEK_SET);
+
+	ssize_t sz = mkv_nextframe(fd, &cur, &r);
+	ck_assert_int_eq(sz, 6);
+	ck_assert_uint_eq(cur.pending_skip, 4);
+
+	uint8_t got[6];
+	ck_assert_int_eq(read(fd, got, 6), 6);
+	ck_assert_mem_eq(got, data, 6);
+
+	ck_assert_int_eq(mkv_nextframe(fd, &cur, &r), 0);
+
+#test nextframe_skips_leading_bytes_at_start_boundary
+	/* 10 bytes PCM: sample_rate=1000, frame_sz=2.
+	   range.start=2 000 000 ns → skip 2 frames (4 bytes), return 6 bytes.
+	   leading_skip=4; block_ts set to range.start. */
+	uint8_t data[10] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+	struct mkv_range r = {
+	    .track=1, .ts_scale=1, .start=2000000, .end=0,
+	    .sample_rate=1000, .frame_sz=2
+	};
+	struct mkv_cursor cur = {0};
+
+	write_cluster(fd, 0, 1, data, sizeof data);
+	lseek(fd, 0, SEEK_SET);
+
+	ssize_t sz = mkv_nextframe(fd, &cur, &r);
+	ck_assert_int_eq(sz, 6);
+	ck_assert_uint_eq(cur.leading_skip, 4);
+	ck_assert_uint_eq(cur.block_ts, 2000000ULL);
+
+	lseek(fd, 4, SEEK_CUR); /* simulate handle_alsa leading_skip */
+	uint8_t got[6];
+	ck_assert_int_eq(read(fd, got, 6), 6);
+	ck_assert_mem_eq(got, data + 4, 6);
+
+#test nextframe_frame_sz_zero_skips_whole_block_before_start
+	/* Without PCM format info (frame_sz=0) the old full-block skip applies. */
+	uint8_t early[]  = { 0x01, 0x02, 0x03 };
+	uint8_t target[] = { 0x04, 0x05 };
+	struct mkv_range r = {
+	    .track=1, .ts_scale=1, .start=100, .end=0, .frame_sz=0
+	};
+	struct mkv_cursor cur = {0};
+
+	struct mstart cl1 = begin_master(fd, MKV_CLUSTER);
+	  wuint(fd, MKV_CLUSTERTIMESTAMP, 0, 8);
+	  write_simpleblock(fd, 1, 0, early, sizeof early);
+	end_master(fd, cl1);
+	struct mstart cl2 = begin_master(fd, MKV_CLUSTER);
+	  wuint(fd, MKV_CLUSTERTIMESTAMP, 100, 8);
+	  write_simpleblock(fd, 1, 0, target, sizeof target);
+	end_master(fd, cl2);
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert_int_eq(mkv_nextframe(fd, &cur, &r), (ssize_t) sizeof target);
+
 /* ================================================================== */
 /* mkv_findcue — multi-track cue points                               */
 /* ================================================================== */

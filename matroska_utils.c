@@ -93,6 +93,12 @@ mkv_nextframe(int fd, struct mkv_cursor *cursor, const struct mkv_range *range)
 {
 	const off_t begin = pos(fd);
 
+	if (cursor->pending_skip > 0) {
+		seek(fd, pos(fd) + (off_t) cursor->pending_skip);
+		cursor->pending_skip = 0;
+		return 0;
+	}
+
 	for (;;) switch (ebml_peek(fd)) {
 	case MKV_CLUSTER:
 		if (ebml_descend(fd, MKV_CLUSTER) == -1)
@@ -120,15 +126,60 @@ mkv_nextframe(int fd, struct mkv_cursor *cursor, const struct mkv_range *range)
 
 		const uint64_t ts = range->ts_scale
 		                  * (cursor->cluster.ts + (uint64_t) b.timecode);
+
 		if (ts < range->start) {
-			seek(fd, pos(fd) + b.frames_sz);
-			break;
+			if (range->frame_sz == 0) {
+				seek(fd, pos(fd) + b.frames_sz);
+				break;
+			}
+			const size_t skip =
+			    (size_t)((range->start - ts) * range->sample_rate
+			             / 1000000000ULL) * range->frame_sz;
+			if (skip >= b.frames_sz) {
+				seek(fd, pos(fd) + b.frames_sz);
+				break;
+			}
+			const size_t tail = b.frames_sz - skip;
+			size_t play = tail, end_skip = 0;
+			if (range->end) {
+				const size_t cap =
+				    (size_t)((range->end - range->start) * range->sample_rate
+				             / 1000000000ULL) * range->frame_sz;
+				if (cap < tail) { play = cap; end_skip = tail - cap; }
+			}
+			if (play == 0) {
+				seek(fd, pos(fd) + b.frames_sz);
+				return 0;
+			}
+			cursor->leading_skip = skip;
+			cursor->block_ts     = range->start;
+			cursor->pending_skip = end_skip;
+			return (ssize_t) play;
 		}
+
 		if (range->end && ts >= range->end) {
 			seek(fd, pos(fd) + b.frames_sz);
 			return 0;
 		}
 
+		cursor->leading_skip = 0;
+		cursor->block_ts     = ts;
+
+		if (range->end && range->frame_sz > 0) {
+			const size_t max =
+			    (size_t)((range->end - ts) * range->sample_rate
+			             / 1000000000ULL) * range->frame_sz;
+			if (max == 0) {
+				seek(fd, pos(fd) + b.frames_sz);
+				return 0;
+			}
+			if (max < b.frames_sz) {
+				cursor->pending_skip = b.frames_sz - max;
+				return (ssize_t) max;
+			}
+		}
+
+		cursor->pending_skip = 0;
 		return (ssize_t) b.frames_sz;
 	}
 

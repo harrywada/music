@@ -175,6 +175,11 @@ handle_alsa(struct state *s)
 			break;
 		}
 
+		if (s->play.cursor.leading_skip > 0) {
+			seek(s->src, pos(s->src) + (off_t) s->play.cursor.leading_skip);
+			s->play.cursor.leading_skip = 0;
+		}
+
 		const size_t n = MIN(rem(buf), (size_t) sz);
 		if (read(s->src, head(buf), n) != (ssize_t) n) {
 			debug(errno, "read");
@@ -305,14 +310,16 @@ read_cfg(int fd, struct cfg *cfg, uint64_t id)
 		return false;
 	}
 
-	cfg->range.ts_scale = info.ts_scale;
-	cfg->range.start    = chapter.start;
-	cfg->range.end      = chapter.end;
-	cfg->range.track    = track.num;
-	cfg->chans          = track.channels;
-	cfg->bps            = track.bps;
-	cfg->rate           = track.rate;
-	cfg->start          = si.segment + start_pos;
+	cfg->range.ts_scale    = info.ts_scale;
+	cfg->range.start       = chapter.start;
+	cfg->range.end         = chapter.end;
+	cfg->range.track       = track.num;
+	cfg->range.sample_rate = (uint64_t) track.rate;
+	cfg->range.frame_sz    = track.channels * (track.bps / 8);
+	cfg->chans             = track.channels;
+	cfg->bps               = track.bps;
+	cfg->rate              = track.rate;
+	cfg->start             = si.segment + start_pos;
 
 	return true;
 }

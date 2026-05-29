@@ -9,12 +9,17 @@ struct mkv_cluster {
 struct mkv_range {
 	uint32_t track;
 	uint64_t ts_scale;
-	uint64_t start, end; /* nanoseconds; end == 0 means play to EOF */
+	uint64_t start, end;        /* nanoseconds; end == 0 means play to EOF */
+	uint64_t sample_rate;       /* Hz; 0 disables sample-precise truncation */
+	size_t   frame_sz;          /* bytes per PCM frame = channels × (bps / 8) */
 };
 
 /* Mutable stream cursor updated by mkv_nextframe across calls. */
 struct mkv_cursor {
 	struct mkv_cluster cluster;
+	uint64_t block_ts;          /* nanoseconds; effective start of last returned block */
+	size_t   leading_skip;      /* bytes to seek past at fd before reading (start truncation) */
+	size_t   pending_skip;      /* bytes to seek past after reading the block (end truncation) */
 };
 
 /* Result of mkv_findcoverart(). Strings are NUL-terminated and truncated
