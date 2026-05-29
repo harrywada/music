@@ -9,6 +9,9 @@
 #include <sys/un.h>      /* sockaddr_un. */
 #include <sys/wait.h>    /* waitpid(2). */
 #include <syslog.h>      /* openlog(3), LOG_*(3). */
+#include <fcntl.h>       /* open(2), O_WRONLY, O_CREAT, O_TRUNC. */
+#include <limits.h>      /* PATH_MAX. */
+#include <sys/stat.h>    /* mkdir(2). */
 #include <unistd.h>      /* close(2p), read(2). */
 
 #include "cmds.h"
@@ -61,6 +64,103 @@ cleanup_mpris(struct mpris **m)
 	mpris_close(*m);
 }
 #endif
+
+static bool
+playlist_path(char out[PATH_MAX])
+{
+	char dir[PATH_MAX];
+
+	const char *xdg = getenv("XDG_STATE_HOME");
+	if (xdg && xdg[0]) {
+		if (snprintf(dir, sizeof dir, "%s/music", xdg) >= (int)sizeof dir)
+			return false;
+	} else {
+		const char *home = getenv("HOME");
+		if (!home || !home[0])
+			return false;
+		if (snprintf(dir, sizeof dir, "%s/.local/state/music", home)
+		    >= (int)sizeof dir)
+			return false;
+	}
+
+	if (mkdir(dir, 0700) == -1 && errno != EEXIST) {
+		debug(errno, "playlist: mkdir %s", dir);
+		return false;
+	}
+
+	if (snprintf(out, PATH_MAX, "%s/playlist.txt", dir) >= PATH_MAX)
+		return false;
+
+	return true;
+}
+
+static void
+save_playlist(const struct state *s)
+{
+	char path[PATH_MAX];
+	if (!playlist_path(path))
+		return;
+
+	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	if (fd == -1) {
+		debug(errno, "playlist: open %s", path);
+		return;
+	}
+
+	for (unsigned int i = s->queue.head; i != s->queue.tail; i++) {
+		const struct song *song = &s->queue.data[i % s->queue.size];
+		char uid_line[23]; /* "#" + ULONG_MAX digits + "\n\0" */
+		int n = snprintf(uid_line, sizeof uid_line, "#%lu\n", song->uid);
+		(void) write(fd, song->path, strlen(song->path));
+		if (n > 0)
+			(void) write(fd, uid_line, (size_t) n);
+	}
+
+	close(fd);
+}
+
+static void
+load_playlist(struct state *s)
+{
+	char path[PATH_MAX];
+	if (!playlist_path(path))
+		return;
+
+	FILE *f = fopen(path, "r");
+	if (!f) {
+		if (errno != ENOENT)
+			debug(errno, "playlist: fopen %s", path);
+		return;
+	}
+
+	char  *line    = nullptr;
+	size_t linecap = 0;
+	ssize_t len;
+
+	while ((len = getline(&line, &linecap, f)) > 0) {
+		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+			line[--len] = '\0';
+		if (!len)
+			continue;
+
+		struct song song;
+		if (!parse_song(line, &song)) {
+			debug(0, "playlist: skipping malformed line: %s", line);
+			continue;
+		}
+
+		struct queue newq = push(s->queue, song);
+		if (qsize(newq) != qsize(s->queue) + 1) {
+			warn(0, "playlist: failed to push song, stopping restore");
+			cleanup_song(&song);
+			break;
+		}
+		s->queue = newq;
+	}
+
+	free(line);
+	fclose(f);
+}
 
 [[gnu::nonnull(1)]]
 static int mksocket(const char *);
@@ -286,6 +386,8 @@ main(int argc, char *argv[])
 	if (!mkstate(&state))
 		die(0, "Can't make state");
 
+	load_playlist(&state);
+
 	fds.fds = malloc(FD_END * sizeof(struct pollfd));
 	if (!fds.fds)
 		die(errno, "malloc");
@@ -436,4 +538,7 @@ main(int argc, char *argv[])
 			mpris_notify(mpris, prev, state);
 #endif
 	}
+
+	if (state.mode == EXITING)
+		save_playlist(&state);
 }
