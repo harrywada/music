@@ -43,7 +43,7 @@ queue_song(const char *path, unsigned long uid, void *ud)
 	int sock = connect_socket(ctx->sockpath);
 	if (sock == -1) return 0;
 	if (ctx->has_pos)
-		dprintf(sock, "insert %s#%lu %ld\n", path, uid, ctx->idx);
+		dprintf(sock, "insert %ld %s#%lu\n", ctx->idx, path, uid);
 	else
 		dprintf(sock, "queue %s#%lu\n", path, uid);
 	close(sock);

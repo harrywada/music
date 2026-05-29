@@ -320,6 +320,12 @@ process_client_buf(struct state *state, struct client *client)
 		char *tok = strtok(start, " ");
 		while (tok && nargs < CMD_ARGV_MAX) {
 			args[nargs++] = tok;
+			if (nargs == 2) {
+				char *rest = tok + strlen(tok) + 1;
+				if (rest < nl && *rest)
+					args[nargs++] = rest;
+				break;
+			}
 			tok = strtok(nullptr, " ");
 		}
 

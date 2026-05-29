@@ -108,17 +108,16 @@ cmd_insert(struct state s, unsigned int argc, const char *args[])
 		return s;
 	}
 
-	struct song song;
-	if (!parse_song(args[0], &song)) {
-		warn(0, "insert: invalid song: %s", args[0]);
+	char *end;
+	long idx = strtol(args[0], &end, 10);
+	if (*end != '\0') {
+		warn(0, "insert: invalid index: %s", args[0]);
 		return s;
 	}
 
-	char *end;
-	long idx = strtol(args[1], &end, 10);
-	if (*end != '\0') {
-		warn(0, "insert: invalid index: %s", args[1]);
-		cleanup_song(&song);
+	struct song song;
+	if (!parse_song(args[1], &song)) {
+		warn(0, "insert: invalid song: %s", args[1]);
 		return s;
 	}
 

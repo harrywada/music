@@ -86,7 +86,7 @@ const struct {
 #test cmd_insert_inserts_at_index_zero
 	struct state s;
 	ck_assert(mkstate(&s));
-	const char *args[] = { "/a/b.mka#1", "0", nullptr };
+	const char *args[] = { "0", "/a/b.mka#1", nullptr };
 	s = cmd_insert(s, 2, args);
 	ck_assert_uint_eq(qsize(s.queue), 1);
 	cleanup_state(&s);
@@ -94,7 +94,7 @@ const struct {
 #test cmd_insert_inserts_at_negative_index
 	struct state s;
 	ck_assert(mkstate(&s));
-	const char *args[] = { "/a/b.mka#1", "-1", nullptr };
+	const char *args[] = { "-1", "/a/b.mka#1", nullptr };
 	s = cmd_insert(s, 2, args);
 	ck_assert_uint_eq(qsize(s.queue), 1);
 	cleanup_state(&s);
@@ -113,7 +113,7 @@ const struct {
 #test cmd_insert_ignores_malformed_song
 	struct state s;
 	ck_assert(mkstate(&s));
-	const char *args[] = { "/a/b.mka", "0", nullptr }; /* Missing #uid. */
+	const char *args[] = { "0", "/a/b.mka", nullptr }; /* Missing #uid. */
 	struct state r = cmd_insert(s, 2, args);
 	ck_assert_uint_eq(qsize(r.queue), 0);
 	cleanup_state(&s);
