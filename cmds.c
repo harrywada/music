@@ -103,21 +103,21 @@ cmd_play(                struct state s,
 struct state
 cmd_insert(struct state s, unsigned int argc, const char *args[])
 {
-	if (argc != 2) {
-		warn(0, "insert: expected 2 arguments, got %u", argc);
+	if (argc != 1) {
+		warn(0, "insert: expected 1 argument, got %u", argc);
 		return s;
 	}
 
 	char *end;
 	long idx = strtol(args[0], &end, 10);
-	if (*end != '\0') {
-		warn(0, "insert: invalid index: %s", args[0]);
+	if (*end != ' ') {
+		warn(0, "insert: expected \"<index> <path>\": %s", args[0]);
 		return s;
 	}
 
 	struct song song;
-	if (!parse_song(args[1], &song)) {
-		warn(0, "insert: invalid song: %s", args[1]);
+	if (!parse_song(end + 1, &song)) {
+		warn(0, "insert: invalid song: %s", end + 1);
 		return s;
 	}
 

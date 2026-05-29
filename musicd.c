@@ -318,15 +318,11 @@ process_client_buf(struct state *state, struct client *client)
 		const char *args[CMD_ARGV_MAX];
 		unsigned int nargs = 0;
 		char *tok = strtok(start, " ");
-		while (tok && nargs < CMD_ARGV_MAX) {
+		if (tok) {
 			args[nargs++] = tok;
-			if (nargs == 2) {
-				char *rest = tok + strlen(tok) + 1;
-				if (rest < nl && *rest)
-					args[nargs++] = rest;
-				break;
-			}
-			tok = strtok(nullptr, " ");
+			char *rest = tok + strlen(tok) + 1;
+			if (rest < nl && *rest)
+				args[nargs++] = rest;
 		}
 
 		if (nargs > 0) {
