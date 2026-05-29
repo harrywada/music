@@ -500,6 +500,36 @@ write_simpleblock(int fd, uint32_t track, int16_t timecode, const uint8_t *data,
 	ck_assert_int_eq(b.frames_n,           3);
 	ck_assert_int_eq((ssize_t)b.frames_sz, 18);
 
+#test readblock_reads_positive_timecode
+	struct mkv_block b;
+	uint8_t payload[] = { 0x00 };
+
+	wid(fd, MKV_SIMPLEBLOCK);
+	wlen(fd, 1 + 2 + 1 + sizeof payload);
+	wbe(fd, 0x81, 1); /* track 1 */
+	wbe(fd, 100,  2); /* timecode = 100, big-endian [0x00, 0x64] */
+	wbe(fd, 0,    1); /* flags */
+	write(fd, payload, sizeof payload);
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(mkv_readblock(fd, &b));
+	ck_assert_int_eq(b.timecode, 100);
+
+#test readblock_reads_negative_timecode
+	struct mkv_block b;
+	uint8_t payload[] = { 0x00 };
+
+	wid(fd, MKV_SIMPLEBLOCK);
+	wlen(fd, 1 + 2 + 1 + sizeof payload);
+	wbe(fd, 0x81,          1); /* track 1 */
+	wbe(fd, (uint16_t)-10, 2); /* timecode = -10, big-endian [0xFF, 0xF6] */
+	wbe(fd, 0,             1); /* flags */
+	write(fd, payload, sizeof payload);
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(mkv_readblock(fd, &b));
+	ck_assert_int_eq(b.timecode, -10);
+
 #test readblock_returns_false_on_wrong_element
 	struct mkv_block b;
 

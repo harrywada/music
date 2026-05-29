@@ -262,8 +262,12 @@ mkv_readblock(int fd, struct mkv_block *block)
 
 	if (!vint_read(fd, &block->track))
 		goto err;
-	if (read(fd, &block->timecode, 2) != 2)
-		goto err;
+	{
+		uint8_t tc[2];
+		if (read(fd, tc, 2) != 2)
+			goto err;
+		block->timecode = (int16_t) ((uint16_t)tc[0] << 8 | tc[1]);
+	}
 	if (read(fd, &block->flags, 1) != 1)
 		goto err;
 
