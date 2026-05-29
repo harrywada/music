@@ -204,9 +204,9 @@ fd_teardown(void)
 
 #tcase mkv_findtrack
 
-#test findtrack_finds_audio_track_by_uid
+#test findtrack_finds_audio_track_by_number
 	struct mkv_track t;
-	uint64_t uids[TRACKS_MAX] = { 0xF001, 0, 0, 0 };
+	uint64_t uids[TRACKS_MAX] = { 1, 0, 0, 0 }; /* track number 1 */
 
 	struct mstart tr = begin_master(fd, MKV_TRACKS);
 	  struct mstart te = begin_master(fd, MKV_TRACKENTRY);
@@ -235,7 +235,7 @@ fd_teardown(void)
 	uint64_t uids[TRACKS_MAX] = { 0xF001, 0, 0, 0 };
 
 	struct mstart tr = begin_master(fd, MKV_TRACKS);
-	  /* Video track with matching UID — must be skipped. */
+	  /* Video track with matching number — must be skipped. */
 	  struct mstart te1 = begin_master(fd, MKV_TRACKENTRY);
 	    wuint(fd, MKV_TRACKNUMBER, 1,      1);
 	    wuint(fd, MKV_TRACKUID,    0xF001, 8);
