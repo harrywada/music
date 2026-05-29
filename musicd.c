@@ -208,7 +208,10 @@ spawn_player(const struct song *song)
 static bool
 effect(const struct state old, const struct state new)
 {
-	bool song_changed = (old.queue.head != new.queue.head);
+	bool song_changed = false;
+	if (qsize(old.queue) && qsize(new.queue))
+		song_changed = old.queue.data[old.queue.head % old.queue.size].uid
+		            != new.queue.data[new.queue.head % new.queue.size].uid;
 
 	/* Kill the running player if stopping, the song changed, or exiting. */
 	if (player_pid != -1
