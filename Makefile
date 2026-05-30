@@ -2,7 +2,10 @@
 TRACKS_MAX    = 4
 VINT_OCTET_MAX = 8
 MPRIS         = 1
+SDBUS         = elogind
 PLAY_PATH     = ./play
+
+PKG_CONFIG   ?= pkg-config
 
 CFLAGS += -std=c23 -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200809L -DPLAY_PATH=\"$(PLAY_PATH)\" \
           -Wall -Wextra -Werror -Wno-empty-body \
@@ -12,9 +15,12 @@ CFLAGS += -std=c23 -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200809L -DPLAY_PATH=\"$(PLA
 
 ifeq ($(MPRIS),1)
 MPRIS_OBJ    = mpris.o tags.o
-MPRIS_CFLAGS = -DMPRIS -isystem /usr/include/elogind
-MPRIS_LFLAGS = -lelogind
+MPRIS_CFLAGS = -DMPRIS $(shell $(PKG_CONFIG) --cflags lib$(SDBUS))
+MPRIS_LFLAGS = $(shell $(PKG_CONFIG) --libs lib$(SDBUS))
 endif
+
+.PHONY: all
+all: play musicd sq sf sc sp
 
 play: LDFLAGS += -lasound
 play: play.c ebml.o matroska.o matroska_utils.o utils.o log_syslog.o
