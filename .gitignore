@@ -1,0 +1,13 @@
+*.o
+
+# Binaries
+musicd
+play
+sc
+sf
+sp
+sq
+
+# Tests
+*_tests
+*_tests.c
