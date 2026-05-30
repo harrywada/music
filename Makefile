@@ -17,30 +17,30 @@ MPRIS_LFLAGS = -lelogind
 endif
 
 play: LDFLAGS += -lasound
-play: play.c ebml.o matroska.o matroska_utils.o utils.o
-musicd: musicd.c cmds.o state.o queue.o song.o utils.o $(MPRIS_OBJ) matroska.o matroska_utils.o ebml.o
+play: play.c ebml.o matroska.o matroska_utils.o utils.o log_syslog.o
+musicd: musicd.c cmds.o state.o queue.o song.o utils.o log_syslog.o $(MPRIS_OBJ) matroska.o matroska_utils.o ebml.o
 musicd: CFLAGS  += $(MPRIS_CFLAGS)
 musicd: LDFLAGS += $(MPRIS_LFLAGS)
-sq: sq.c ebml.o matroska.o matroska_utils.o song.o utils.o
-sf: sf.c filter.o tags.o ebml.o matroska.o matroska_utils.o song.o utils.o
-sc: sc.c utils.o
-sp: sp.c format.o tags.o ebml.o matroska.o matroska_utils.o song.o utils.o
+sq: sq.c ebml.o matroska.o matroska_utils.o song.o utils.o log_stderr.o
+sf: sf.c filter.o tags.o ebml.o matroska.o matroska_utils.o song.o utils.o log_stderr.o
+sc: sc.c utils.o log_stderr.o
+sp: sp.c format.o tags.o ebml.o matroska.o matroska_utils.o song.o utils.o log_stderr.o
 
 .SUFFIXES: _tests.ts _tests.c
 _tests.ts_tests.c:
 	checkmk $< >$@
 
 LDFLAGS += -lcheck
-cmds_tests: cmds_tests.c cmds.o state.o queue.o song.o utils.o ebml.o matroska.o matroska_utils.o
-filter_tests: filter_tests.c filter.o tags.o ebml.o utils.o
-format_tests: format_tests.c format.o tags.o ebml.o utils.o
-ebml_tests: ebml_tests.c ebml.o utils.o
-matroska_tests: matroska_tests.c matroska.o ebml.o utils.o
-matroska_utils_tests: matroska_utils_tests.c matroska_utils.o matroska.o ebml.o utils.o
-tags_tests: tags_tests.c tags.o ebml.o matroska.o utils.o
-queue_tests: queue_tests.c queue.o song.o utils.o ebml.o matroska.o matroska_utils.o
-song_tests: song_tests.c song.o utils.o ebml.o matroska.o matroska_utils.o
-utils_tests: utils_tests.c utils.o
+cmds_tests: cmds_tests.c cmds.o state.o queue.o song.o utils.o log_stderr.o ebml.o matroska.o matroska_utils.o
+filter_tests: filter_tests.c filter.o tags.o ebml.o utils.o log_stderr.o
+format_tests: format_tests.c format.o tags.o ebml.o utils.o log_stderr.o
+ebml_tests: ebml_tests.c ebml.o utils.o log_stderr.o
+matroska_tests: matroska_tests.c matroska.o ebml.o utils.o log_stderr.o
+matroska_utils_tests: matroska_utils_tests.c matroska_utils.o matroska.o ebml.o utils.o log_stderr.o
+tags_tests: tags_tests.c tags.o ebml.o matroska.o utils.o log_stderr.o
+queue_tests: queue_tests.c queue.o song.o utils.o log_stderr.o ebml.o matroska.o matroska_utils.o
+song_tests: song_tests.c song.o utils.o log_stderr.o ebml.o matroska.o matroska_utils.o
+utils_tests: utils_tests.c utils.o log_stderr.o
 
 BINDIR    = /usr/bin
 LIBEXECDIR = /usr/libexec/music
@@ -54,4 +54,4 @@ install: play sq sf sc sp
 
 .PHONY: clean
 clean:
-	rm -rf musicd play sq sf sc sp *_tests *_tests.c *.o
+	rm -rf musicd play sq sf sc sp *_tests *_tests.c *.o log_syslog.o log_stderr.o

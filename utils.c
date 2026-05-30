@@ -1,22 +1,11 @@
 #include <stdarg.h> /* va_list(3type), va_start(3), va_end(3). */
-#include <stdio.h>  /* vsnprintf(3). */
 #include <stdlib.h> /* abort(3), exit(3). */
-#include <string.h> /* strerror(3). */
-#include <syslog.h> /* syslog(3), LOG_*(3). */
+#include <syslog.h> /* LOG_*(3). */
 #include <unistd.h> /* lseek(2), off_t(3type). */
 
 #include "utils.h"
 
-static void
-log_msg(int priority, int err, char *msg, va_list args)
-{
-	char buf[512];
-	vsnprintf(buf, sizeof buf, msg, args);
-	if (err)
-		syslog(priority, "%s: %s", buf, strerror(err));
-	else
-		syslog(priority, "%s", buf);
-}
+void log_msg(int, int, char *, va_list);
 
 void
 debug(int err, char *msg, ...)
