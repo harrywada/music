@@ -294,8 +294,6 @@ dispatch_cmd(struct state *state, int fd, const char **args, unsigned int nargs)
 {
 	if (strcmp(args[0], "list") == 0)
 		cmd_list(*state, fd);
-	else if (strcmp(args[0], "size") == 0)
-		cmd_size(*state, fd);
 	else if (strcmp(args[0], "status") == 0)
 		cmd_status(*state, fd);
 	else

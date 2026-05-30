@@ -23,5 +23,4 @@ struct state cmd_insert(struct state, unsigned int, const char *[]);
 struct state cmd_clear(struct state, unsigned int, const char *[]);
 
 void cmd_list(struct state, int);
-void cmd_size(struct state, int);
 void cmd_status(struct state, int);

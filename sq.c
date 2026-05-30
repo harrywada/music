@@ -33,7 +33,7 @@ struct queue_ctx {
 	const char *sockpath;
 	bool        has_pos;
 	long        idx; /* current insert_at index; mutated per song */
-	bool        neg; /* true only when size query failed; uses fixed idx */
+	bool        neg; /* true when sq position < 0 */
 };
 
 static int
@@ -50,30 +50,6 @@ queue_song(const char *path, unsigned long uid, void *ud)
 	if (ctx->has_pos && !ctx->neg)
 		ctx->idx++;
 	return 1;
-}
-
-/*
- * Query the daemon for the current queue length.
- * Returns the length on success, or -1 on failure.
- */
-static long
-query_qsize(const char *sockpath)
-{
-	int sock = connect_socket(sockpath);
-	if (sock == -1)
-		return -1;
-	dprintf(sock, "size\n");
-	char    buf[32];
-	ssize_t len = read(sock, buf, sizeof buf - 1);
-	close(sock);
-	if (len <= 0)
-		return -1;
-	buf[len] = '\0';
-	char *end;
-	long  n = strtol(buf, &end, 10);
-	if (*end != '\n' && *end != '\0')
-		return -1;
-	return n;
 }
 
 int
@@ -105,42 +81,11 @@ main(int argc, char *argv[])
 		return 1;
 	}
 
-	/*
-	 * For a negative position, resolve it to an absolute index now so
-	 * that all songs are inserted in order.  The fixed-negative-idx
-	 * approach only works when the queue is large enough; if n is too
-	 * small the same back-offset wraps back before the last inserted
-	 * song.  Querying the size once and then incrementing gives correct
-	 * ordering in all cases.
-	 *
-	 * Fall back to the old fixed-idx approach only when the size query
-	 * fails; in that case insert_at's own clamping (pos >= 1) at least
-	 * prevents displacing the active song.
-	 */
-	long initial_idx;
-	bool neg;
-
-	if (has_pos && pos < 0) {
-		long n = query_qsize(sockpath);
-		if (n >= 0) {
-			/* n + pos = n - |pos|, clamped to [1, n]. */
-			long start = n + pos;
-			initial_idx = start < 1 ? 1 : start;
-			neg         = false;
-		} else {
-			initial_idx = pos - 1;
-			neg         = true;
-		}
-	} else {
-		initial_idx = has_pos ? pos + 1 : 0;
-		neg         = false;
-	}
-
 	struct queue_ctx ctx = {
 		.sockpath = sockpath,
 		.has_pos  = has_pos,
-		.idx      = initial_idx,
-		.neg      = neg,
+		.idx      = has_pos ? (pos >= 0 ? pos + 1 : pos - 1) : 0,
+		.neg      = has_pos && pos < 0,
 	};
 
 	char  *line    = NULL;
