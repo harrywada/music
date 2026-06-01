@@ -4,6 +4,7 @@
 #include <string.h>
 #include <strings.h> /* strcasecmp(3). */
 #include <sys/types.h>
+#include <unistd.h>
 
 #include <stdbool.h>
 #include "ebml.h"
@@ -20,6 +21,35 @@ dup_str(const char *s, size_t len)
 	memcpy(r, s, len);
 	r[len] = '\0';
 	return r;
+}
+
+static int
+read_uint_body(int fd, off_t end, uint64_t *out)
+{
+	uint64_t val = 0;
+	size_t len = (size_t)(end - pos(fd));
+	uint8_t buf[sizeof val];
+
+	if (len > sizeof buf || read(fd, buf, len) != (ssize_t)len)
+		return 0;
+	for (size_t i = 0; i < len; i++)
+		val = (val << 8) | buf[i];
+	*out = val;
+	return 1;
+}
+
+static int
+read_string_body(int fd, off_t end, char **dest, size_t *sz)
+{
+	size_t len = (size_t)(end - pos(fd));
+
+	if (*sz < len) {
+		*dest = realloc(*dest, len);
+		if (*dest == NULL)
+			return 0;
+	}
+	*sz = len;
+	return read(fd, *dest, len) == (ssize_t)len;
 }
 
 static int
@@ -102,19 +132,6 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
                     struct song_tags *at);
 
 static void
-read_one_simpletag(int fd, int scope, const char *parent_name,
-                   struct song_tags *ct, struct song_tags *tt,
-                   struct song_tags *at)
-{
-	off_t st_end;
-
-	if ((st_end = ebml_descend(fd, MKV_SIMPLETAG)) == -1)
-		return;
-	read_simpletag_body(fd, st_end, scope, parent_name, ct, tt, at);
-	seek(fd, st_end);
-}
-
-static void
 read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
                     struct song_tags *ct, struct song_tags *tt,
                     struct song_tags *at)
@@ -127,16 +144,30 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
 	   seek for well-formed files.  Fall back to a two-pass approach
 	   only when a non-conformant file places TagName after other
 	   elements. */
-	if (pos(fd) < end && ebml_peek(fd) == MKV_TAGNAME) {
-		ebml_readstring(fd, MKV_TAGNAME, &name, &name_sz);
-	} else {
+	if (pos(fd) < end) {
+		off_t child_start = pos(fd), child_end;
+		uint32_t id;
+
+		if (ebml_element(fd, &id, &child_end) && id == MKV_TAGNAME) {
+			read_string_body(fd, child_end, &name, &name_sz);
+			seek(fd, child_end);
+		} else {
+			seek(fd, child_start);
+		}
+	}
+	if (name == NULL) {
 		off_t body_start = pos(fd);
 		while (pos(fd) < end) {
-			if (ebml_peek(fd) == MKV_TAGNAME) {
-				ebml_readstring(fd, MKV_TAGNAME, &name, &name_sz);
+			off_t child_end;
+			uint32_t id;
+
+			if (!ebml_element(fd, &id, &child_end))
+				break;
+			if (id == MKV_TAGNAME) {
+				read_string_body(fd, child_end, &name, &name_sz);
 				break;
 			}
-			ebml_skip(fd, EBML_ANY_ELEMENT);
+			seek(fd, child_end);
 		}
 		seek(fd, body_start);
 	}
@@ -156,20 +187,24 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
 	/* Forward pass: fd is already past TagName in the fast path, or
 	   reset to body_start in the fallback (TagName skipped in switch). */
 	while (pos(fd) < end) {
-		switch (ebml_peek(fd)) {
+		off_t child_end;
+		uint32_t id;
+
+		if (!ebml_element(fd, &id, &child_end))
+			break;
+		switch (id) {
 		case MKV_TAGNAME:
-			ebml_skip(fd, MKV_TAGNAME);
 			break;
 		case MKV_TAGSTRING:
-			ebml_readstring(fd, MKV_TAGSTRING, &value, &value_sz);
+			read_string_body(fd, child_end, &value, &value_sz);
 			break;
 		case MKV_SIMPLETAG:
-			read_one_simpletag(fd, scope, name_buf, ct, tt, at);
+			read_simpletag_body(fd, child_end, scope, name_buf, ct, tt, at);
 			break;
 		default:
-			ebml_skip(fd, EBML_ANY_ELEMENT);
 			break;
 		}
+		seek(fd, child_end);
 	}
 
 	if (value && value_sz > 0)
@@ -211,33 +246,42 @@ tag_scope(int fd, uint64_t chapter_uid, uint64_t track_uid)
 	bool has_any_track        = false;
 	bool has_matching_track   = false;
 
-	if (ebml_peek(fd) == MKV_TARGETS) {
-		off_t targets_end;
-		if ((targets_end = ebml_descend(fd, MKV_TARGETS)) == -1)
-			return -1;
-		while (pos(fd) < targets_end) {
-			uint64_t tmp = 0;
-			switch (ebml_peek(fd)) {
-			case MKV_TARGETTYPEVALUE:
-				ebml_readuint(fd, MKV_TARGETTYPEVALUE, &target_type);
-				break;
-			case MKV_TAGCHAPTERUID:
-				if (ebml_readuint(fd, MKV_TAGCHAPTERUID, &tmp)) {
-					has_any_chapter = true;
-					if (tmp == chapter_uid)
-						has_matching_chapter = true;
+	off_t begin = pos(fd), targets_end;
+	uint32_t id;
+
+	if (ebml_element(fd, &id, &targets_end)) {
+		if (id != MKV_TARGETS) {
+			seek(fd, begin);
+		} else {
+			while (pos(fd) < targets_end) {
+				uint64_t tmp = 0;
+				off_t child_end;
+
+				if (!ebml_element(fd, &id, &child_end))
+					return -1;
+				switch (id) {
+				case MKV_TARGETTYPEVALUE:
+					if (read_uint_body(fd, child_end, &tmp))
+						target_type = (uint32_t)tmp;
+					break;
+				case MKV_TAGCHAPTERUID:
+					if (read_uint_body(fd, child_end, &tmp)) {
+						has_any_chapter = true;
+						if (tmp == chapter_uid)
+							has_matching_chapter = true;
+					}
+					break;
+				case MKV_TAGTRACKUID:
+					if (read_uint_body(fd, child_end, &tmp)) {
+						has_any_track = true;
+						if (tmp == track_uid)
+							has_matching_track = true;
+					}
+					break;
+				default:
+					break;
 				}
-				break;
-			case MKV_TAGTRACKUID:
-				if (ebml_readuint(fd, MKV_TAGTRACKUID, &tmp)) {
-					has_any_track = true;
-					if (tmp == track_uid)
-						has_matching_track = true;
-				}
-				break;
-			default:
-				ebml_skip(fd, EBML_ANY_ELEMENT);
-				break;
+				seek(fd, child_end);
 			}
 		}
 	}
@@ -266,28 +310,30 @@ mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
 	if ((tags_end = ebml_descend(fd, MKV_TAGS)) != -1) {
 		while (pos(fd) < tags_end) {
 			off_t tag_end;
-			if (ebml_peek(fd) != MKV_TAG) {
-				ebml_skip(fd, EBML_ANY_ELEMENT);
-				continue;
-			}
-			if ((tag_end = ebml_descend(fd, MKV_TAG)) == -1)
+			uint32_t id;
+
+			if (!ebml_element(fd, &id, &tag_end))
 				break;
+			if (id != MKV_TAG)
+				goto next_tag;
 
 			int scope = tag_scope(fd, chapter_uid, track_uid);
-			if (scope < 0) {
-				seek(fd, tag_end);
-				continue;
-			}
+			if (scope < 0)
+				goto next_tag;
 
 			/* Read SimpleTags. */
 			while (pos(fd) < tag_end) {
-				if (ebml_peek(fd) != MKV_SIMPLETAG) {
-					ebml_skip(fd, EBML_ANY_ELEMENT);
-					continue;
-				}
-				read_one_simpletag(fd, scope, NULL, &ct, &tt, &at);
+				off_t child_end;
+
+				if (!ebml_element(fd, &id, &child_end))
+					break;
+				if (id == MKV_SIMPLETAG)
+					read_simpletag_body(fd, child_end, scope, NULL,
+					                    &ct, &tt, &at);
+				seek(fd, child_end);
 			}
 
+next_tag:
 			seek(fd, tag_end);
 		}
 	}

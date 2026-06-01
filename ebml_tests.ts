@@ -191,6 +191,36 @@ struct {
 	ck_assert_int_eq(ebml_peek(fd), 0);
 	ck_assert_int_eq(lseek(fd, 0, SEEK_SET), 0);
 
+#tcase ebml_element
+
+#test element_reads_header
+	uint8_t data[] = {
+		0x73, 0x73,       /* ID. */
+		1 << 7 | 3,       /* size. */
+		0xff, 0xff, 0xa9,
+	};
+	uint32_t id;
+	off_t end;
+
+	write(fd, data, sizeof(data));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(ebml_element(fd, &id, &end));
+	ck_assert_uint_eq(id, 0x7373);
+	ck_assert_int_eq(end, sizeof(data));
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), 3);
+
+#test element_doesnt_consume_on_overflow_id
+	uint8_t bad_id[] = { 0x08, 0xe1, 0x24, 0xd5, 0x69 };
+	uint32_t id = 0;
+	off_t end = 0;
+
+	write(fd, bad_id, sizeof(bad_id));
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert(!ebml_element(fd, &id, &end));
+	ck_assert_int_eq(lseek(fd, 0, SEEK_CUR), 0);
+
 #tcase ebml_skip
 
 #test skip_consumes_input
@@ -628,3 +658,4 @@ struct {
 	tcase_add_checked_fixture(tc1_9, fd_setup, fd_teardown);
 	tcase_add_checked_fixture(tc1_10, fd_setup, fd_teardown);
 	tcase_add_checked_fixture(tc1_11, fd_setup, fd_teardown);
+	tcase_add_checked_fixture(tc1_12, fd_setup, fd_teardown);

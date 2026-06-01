@@ -133,6 +133,23 @@ end:
 	return res;
 }
 
+int
+ebml_element(int fd, uint32_t *element_id, off_t *end)
+{
+	struct vint id, len;
+	off_t begin;
+
+	begin = pos(fd);
+	if (!vint_read(fd, &id)
+	||  id.size > sizeof *element_id
+	||  !vint_read(fd, &len))
+		return seek(fd, begin), 0;
+
+	*element_id = (uint32_t) id.raw;
+	*end = pos(fd) + vint_value(len);
+	return 1;
+}
+
 off_t
 ebml_skip(int fd, uint32_t expected_id)
 {

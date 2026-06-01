@@ -27,6 +27,8 @@ off_t ebml_descend(int, uint_least32_t); /* Assume IDs are at most four bytes. *
 [[gnu::fd_arg_read(1)]]
 uint32_t ebml_peek(int); /* Returns 0 on error. IDs are at most four bytes. */
 [[gnu::fd_arg_read(1)]]
+int ebml_element(int, uint32_t *, off_t *);
+[[gnu::fd_arg_read(1)]]
 off_t ebml_skip(int, uint_least32_t); /* Assume IDs are at most four bytes. */
 
 [[gnu::fd_arg_read(1), gnu::nonnull(3)]]
