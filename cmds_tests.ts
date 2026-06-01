@@ -228,6 +228,21 @@ const struct {
 	ck_assert_str_eq(buf, "/a.mka#1\n");
 	cleanup_state(&s);
 
+#tcase clearall
+
+#test cmd_clearall_removes_every_song_and_stops
+	struct state s;
+	ck_assert(mkstate(&s));
+	const char *qa[] = { "/a.mka#1", nullptr };
+	const char *qb[] = { "/b.mka#2", nullptr };
+	s = cmd_queue(s, 1, qa);
+	s = cmd_queue(s, 1, qb);
+	s.play = PLAYING;
+	s = cmd_clearall(s, 0, nullptr);
+	ck_assert_uint_eq(qsize(s.queue), 0);
+	ck_assert_int_eq(s.play, STOPPED);
+	cleanup_state(&s);
+
 #tcase stop
 
 #test cmd_stop_sets_stopped

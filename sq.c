@@ -36,6 +36,17 @@ struct queue_ctx {
 	bool        neg; /* true when sq position < 0 */
 };
 
+static bool
+send_cmd(const char *sockpath, const char *cmd)
+{
+	int sock = connect_socket(sockpath);
+	if (sock == -1)
+		return false;
+	dprintf(sock, "%s\n", cmd);
+	close(sock);
+	return true;
+}
+
 static int
 queue_song(const char *path, unsigned long uid, void *ud)
 {
@@ -57,34 +68,50 @@ main(int argc, char *argv[])
 {
 	const char *sockpath = NULL;
 	bool        has_pos  = false;
+	bool        replace  = false;
+	bool        xreplace = false;
 	long        pos      = 0;
 
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
 			sockpath = argv[++i];
+		} else if (strcmp(argv[i], "-r") == 0) {
+			replace = true;
+		} else if (strcmp(argv[i], "-x") == 0) {
+			xreplace = true;
 		} else if (!has_pos) {
 			char *end;
 			pos = strtol(argv[i], &end, 10);
 			if (*end != '\0') {
 				fprintf(stderr,
-				        "Usage: sq -s <socket-path> [position]\n");
+				        "Usage: sq -s <socket-path> [-rx] [position]\n");
 				return 1;
 			}
 			has_pos = true;
 		} else {
-			fprintf(stderr, "Usage: sq -s <socket-path> [position]\n");
+			fprintf(stderr, "Usage: sq -s <socket-path> [-rx] [position]\n");
 			return 1;
 		}
 	}
 	if (!sockpath) {
-		fprintf(stderr, "Usage: sq -s <socket-path> [position]\n");
+		fprintf(stderr, "Usage: sq -s <socket-path> [-rx] [position]\n");
 		return 1;
+	}
+
+	if (replace) {
+		const char *cmd = xreplace ? "clearall" : "clear";
+		if (!send_cmd(sockpath, cmd))
+			return 1;
+	} else if (xreplace) {
+		if (!send_cmd(sockpath, "stop"))
+			return 1;
 	}
 
 	struct queue_ctx ctx = {
 		.sockpath = sockpath,
 		.has_pos  = has_pos,
-		.idx      = has_pos ? (pos >= 0 ? pos + 1 : pos - 1) : 0,
+		.idx      = has_pos ? (xreplace ? pos :
+		            (pos >= 0 ? pos + 1 : pos - 1)) : 0,
 		.neg      = has_pos && pos < 0,
 	};
 

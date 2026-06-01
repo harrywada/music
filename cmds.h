@@ -21,6 +21,7 @@ CMD_DECL(toggle);
 struct state cmd_queue(struct state, unsigned int, const char *[]);
 struct state cmd_insert(struct state, unsigned int, const char *[]);
 struct state cmd_clear(struct state, unsigned int, const char *[]);
+struct state cmd_clearall(struct state, unsigned int, const char *[]);
 
 void cmd_list(struct state, int);
 void cmd_status(struct state, int);

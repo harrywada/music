@@ -23,6 +23,7 @@ cmd(struct state s, unsigned int argc, const char *args[])
 	DO(play);
 	DO(insert);
 	DO(clear);
+	DO(clearall);
 	DO(skip);
 	DO(stop);
 	DO(toggle);
@@ -142,6 +143,20 @@ cmd_clear(                struct state s,
 	for (unsigned int i = s.queue.head + 1; i != s.queue.tail; i++)
 		cleanup_song(&s.queue.data[i % s.queue.size]);
 	s.queue.tail = s.queue.head + 1;
+	return s;
+}
+
+struct state
+cmd_clearall(                struct state s,
+             [[gnu::unused]] unsigned int argc,
+             [[gnu::unused]] const char *args[])
+{
+	while (qsize(s.queue)) {
+		[[gnu::cleanup(cleanup_song)]]
+		struct song song;
+		s.queue = pop(s.queue, &song);
+	}
+	s.play = STOPPED;
 	return s;
 }
 
