@@ -109,43 +109,43 @@ main(int argc, char *argv[])
 {
 	const char *sockpath = NULL;
 	bool        has_pos  = false;
-	bool        replace  = false;
-	bool        xreplace = false;
+	bool        clear    = false;
+	bool        include0 = false;
 	long        pos      = 0;
 
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
 			sockpath = argv[++i];
-		} else if (strcmp(argv[i], "-r") == 0) {
-			replace = true;
 		} else if (strcmp(argv[i], "-x") == 0) {
-			xreplace = true;
+			clear = true;
+		} else if (strcmp(argv[i], "-0") == 0) {
+			include0 = true;
 		} else if (!has_pos) {
 			char *end;
 			pos = strtol(argv[i], &end, 10);
 			if (*end != '\0') {
 				fprintf(stderr,
-				        "Usage: sq -s <socket-path> [-rx] [position]\n");
+				        "Usage: sq -s <socket-path> [-x] [-0] [position]\n");
 				return 1;
 			}
 			has_pos = true;
 		} else {
-			fprintf(stderr, "Usage: sq -s <socket-path> [-rx] [position]\n");
+			fprintf(stderr, "Usage: sq -s <socket-path> [-x] [-0] [position]\n");
 			return 1;
 		}
 	}
 	if (!sockpath) {
-		fprintf(stderr, "Usage: sq -s <socket-path> [-rx] [position]\n");
+		fprintf(stderr, "Usage: sq -s <socket-path> [-x] [-0] [position]\n");
 		return 1;
 	}
 
 	struct queue_ctx ctx = {
 		.sockpath       = sockpath,
 		.has_pos        = has_pos,
-		.replace_active = xreplace,
-		.replace_all    = replace,
+		.replace_active = include0,
+		.replace_all    = clear,
 		.initialized    = false,
-		.idx            = has_pos ? (xreplace ? pos :
+		.idx            = has_pos ? (include0 ? pos :
 		                  (pos >= 0 ? pos + 1 : pos - 1)) : 0,
 		.neg            = has_pos && pos < 0,
 	};
