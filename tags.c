@@ -93,34 +93,62 @@ append_tag_value(struct tag_values *tv, const char *s, size_t len)
 #define SCOPE_ALBUM   2
 #define SCOPE_EDITION 3  /* TargetTypeValue 60 — disc/volume level */
 
+enum mkv_tag_name {
+	MKV_TAG_NAME_UNKNOWN,
+	MKV_TAG_NAME_DATE_RELEASED,
+	MKV_TAG_NAME_ARTIST,
+	MKV_TAG_NAME_TITLE,
+	MKV_TAG_NAME_GENRE,
+	MKV_TAG_NAME_PART_NUMBER,
+	MKV_TAG_NAME_ORIGINAL,
+};
+
+static enum mkv_tag_name
+classify_tag_name(const char *name)
+{
+	if (strcasecmp(name, "DATE_RELEASED") == 0)
+		return MKV_TAG_NAME_DATE_RELEASED;
+	if (strcasecmp(name, "ARTIST") == 0)
+		return MKV_TAG_NAME_ARTIST;
+	if (strcasecmp(name, "TITLE") == 0)
+		return MKV_TAG_NAME_TITLE;
+	if (strcasecmp(name, "GENRE") == 0)
+		return MKV_TAG_NAME_GENRE;
+	if (strcasecmp(name, "PART_NUMBER") == 0)
+		return MKV_TAG_NAME_PART_NUMBER;
+	if (strcasecmp(name, "ORIGINAL") == 0)
+		return MKV_TAG_NAME_ORIGINAL;
+	return MKV_TAG_NAME_UNKNOWN;
+}
+
 /* Add a (name, value) pair to the correct bucket and field. */
 static void
-add_tag_value(const char *name, const char *value, size_t value_len,
-              int scope, const char *parent_name,
+add_tag_value(enum mkv_tag_name name, const char *value, size_t value_len,
+              int scope, enum mkv_tag_name parent_name,
               struct song_tags *ct, struct song_tags *tt, struct song_tags *at)
 {
 	struct tag_values *tv = NULL;
 	enum tag_field field;
 
-	if (parent_name && strcasecmp(parent_name, "ORIGINAL") == 0) {
-		if (strcasecmp(name, "DATE_RELEASED") == 0)
+	if (parent_name == MKV_TAG_NAME_ORIGINAL) {
+		if (name == MKV_TAG_NAME_DATE_RELEASED)
 			field = TAG_ORIG_DATE;
 		else
 			return;
-	} else if (strcasecmp(name, "DATE_RELEASED") == 0) {
+	} else if (name == MKV_TAG_NAME_DATE_RELEASED) {
 		field = TAG_DATE;
-	} else if (strcasecmp(name, "ARTIST") == 0) {
+	} else if (name == MKV_TAG_NAME_ARTIST) {
 		field = TAG_ARTIST;
-	} else if (strcasecmp(name, "TITLE") == 0) {
+	} else if (name == MKV_TAG_NAME_TITLE) {
 		if (scope == SCOPE_ALBUM) {
 			/* Album title lives in the album bucket. */
 			append_tag_value(&at->fields[TAG_ALBUM], value, value_len);
 			return;
 		}
 		field = TAG_TITLE;
-	} else if (strcasecmp(name, "GENRE") == 0) {
+	} else if (name == MKV_TAG_NAME_GENRE) {
 		field = TAG_GENRE;
-	} else if (strcasecmp(name, "PART_NUMBER") == 0) {
+	} else if (name == MKV_TAG_NAME_PART_NUMBER) {
 		field = (scope == SCOPE_EDITION) ? TAG_DISC : TAG_TRACK;
 	} else {
 		return;
@@ -139,18 +167,19 @@ add_tag_value(const char *name, const char *value, size_t value_len,
 
 /* Read the body of one SimpleTag (fd past the header, end = element end). */
 static void
-read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
+read_simpletag_body(int fd, off_t end, int scope, enum mkv_tag_name parent_name,
                     struct song_tags *ct, struct song_tags *tt,
                     struct song_tags *at);
 
 static void
-read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
+read_simpletag_body(int fd, off_t end, int scope, enum mkv_tag_name parent_name,
                     struct song_tags *ct, struct song_tags *tt,
                     struct song_tags *at)
 {
 	char  *value = NULL;
 	size_t value_sz = 0;
 	char   name_buf[64] = {0};
+	enum mkv_tag_name name;
 
 	/* TagName MUST be first per the Matroska spec; skip the backward
 	   seek for well-formed files.  Fall back to a two-pass approach
@@ -188,6 +217,7 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
 
 	if (name_buf[0] == '\0')
 		return;
+	name = classify_tag_name(name_buf);
 
 	/* Forward pass: fd is already past TagName in the fast path, or
 	   reset to body_start in the fallback (TagName skipped in switch). */
@@ -204,7 +234,7 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
 			read_string_body(fd, child_end, &value, &value_sz);
 			break;
 		case MKV_SIMPLETAG:
-			read_simpletag_body(fd, child_end, scope, name_buf, ct, tt, at);
+			read_simpletag_body(fd, child_end, scope, name, ct, tt, at);
 			break;
 		default:
 			break;
@@ -213,7 +243,7 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
 	}
 
 	if (value && value_sz > 0)
-		add_tag_value(name_buf, value, value_sz, scope, parent_name,
+		add_tag_value(name, value, value_sz, scope, parent_name,
 		              ct, tt, at);
 	free(value);
 }
@@ -333,8 +363,9 @@ mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
 				if (!ebml_element(fd, &id, &child_end))
 					break;
 				if (id == MKV_SIMPLETAG)
-					read_simpletag_body(fd, child_end, scope, NULL,
-					                    &ct, &tt, &at);
+					read_simpletag_body(fd, child_end, scope,
+					                    MKV_TAG_NAME_UNKNOWN, &ct,
+					                    &tt, &at);
 				seek(fd, child_end);
 			}
 
