@@ -51,12 +51,15 @@ utils_tests: utils_tests.c utils.o log_stderr.o
 DESTDIR   =
 BINDIR    = /usr/bin
 LIBEXECDIR = /usr/libexec/music
+MANDIR    = /usr/share/man
 
 .PHONY: install
 install: all
-	install -d $(DESTDIR)$(LIBEXECDIR) $(DESTDIR)$(BINDIR)
+	install -d $(DESTDIR)$(LIBEXECDIR) $(DESTDIR)$(BINDIR) \
+		$(DESTDIR)$(MANDIR)/man1
 	install -m755 play $(DESTDIR)$(LIBEXECDIR)/play
 	install -m755 musicd sq sf sc sp $(DESTDIR)$(BINDIR)/
+	install -m644 man/*.1 $(DESTDIR)$(MANDIR)/man1/
 
 .PHONY: clean
 clean:

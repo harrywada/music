@@ -1,0 +1,33 @@
+.Dd June 2, 2026
+.Dt PLAY 1
+.Os
+.Sh NAME
+.Nm play
+.Nd play one Matroska chapter through ALSA
+.Sh SYNOPSIS
+.Nm
+.Ar path
+.Ar chapter-id
+.Sh DESCRIPTION
+.Nm
+is the private playback helper used by
+.Xr musicd 1 .
+It opens the Matroska file at
+.Ar path ,
+locates
+.Ar chapter-id ,
+and writes the chapter audio to the default ALSA playback device.
+.Pp
+.Nm
+responds to signals from
+.Xr musicd 1 :
+.Bl -tag -width SIGUSR2 -compact
+.It Dv SIGHUP
+Stop playback.
+.It Dv SIGUSR1
+Resume playback.
+.It Dv SIGUSR2
+Pause playback.
+.El
+.Sh SEE ALSO
+.Xr musicd 1

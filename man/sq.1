@@ -1,0 +1,40 @@
+.Dd June 2, 2026
+.Dt SQ 1
+.Os
+.Sh NAME
+.Nm sq
+.Nd queue songs in musicd
+.Sh SYNOPSIS
+.Nm
+.Fl s Ar socket-path
+.Op Fl x
+.Op Fl 0
+.Op Ar position
+.Sh DESCRIPTION
+.Nm
+reads paths or song references from standard input and sends them to
+.Xr musicd 1
+through the Unix-domain socket at
+.Ar socket-path .
+.Pp
+A song reference has the form
+.Ar path Ns # Ns Ar chapter-id .
+When an input line is only a path,
+.Nm
+expands all chapters in that file.
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl s Ar socket-path
+Connect to this
+.Xr musicd 1
+socket.
+.It Fl x
+Clear the queue before adding songs.
+.It Fl 0
+Include the active song when clearing or positioning.
+.It Ar position
+Insert songs relative to the queue position instead of appending them.
+.El
+.Sh SEE ALSO
+.Xr musicd 1 ,
+.Xr sf 1

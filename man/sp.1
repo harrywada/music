@@ -1,0 +1,33 @@
+.Dd June 2, 2026
+.Dt SP 1
+.Os
+.Sh NAME
+.Nm sp
+.Nd print formatted song metadata
+.Sh SYNOPSIS
+.Nm
+.Ar format
+.Sh DESCRIPTION
+.Nm
+reads paths or song references from standard input, expands paths to Matroska
+chapters, and writes one formatted line per song to standard output.
+.Pp
+A song reference has the form
+.Ar path Ns # Ns Ar chapter-id .
+.Sh FORMAT
+Literal text is copied to the output.
+Fields are written as
+.Cm { Ns Ar field Ns Cm } .
+Available fields are
+.Cm {date} ,
+.Cm {orig-date} ,
+.Cm {artist} ,
+.Cm {title} ,
+.Cm {genre} ,
+.Cm {album} ,
+.Cm {track} ,
+and
+.Cm {disc} .
+Use a backslash to quote the next character.
+.Sh SEE ALSO
+.Xr sf 1

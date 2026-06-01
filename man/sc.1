@@ -1,0 +1,43 @@
+.Dd June 2, 2026
+.Dt SC 1
+.Os
+.Sh NAME
+.Nm sc
+.Nd send a control command to musicd
+.Sh SYNOPSIS
+.Nm
+.Fl s Ar socket-path
+.Ar command
+.Sh DESCRIPTION
+.Nm
+connects to the
+.Xr musicd 1
+Unix-domain socket at
+.Ar socket-path
+and sends
+.Ar command .
+.Pp
+For
+.Cm list
+and
+.Cm status ,
+.Nm
+copies the daemon response to standard output.
+.Sh COMMANDS
+.Nm
+accepts these commands:
+.Cm exit ,
+.Cm list ,
+.Cm loop ,
+.Cm consume ,
+.Cm pause ,
+.Cm play ,
+.Cm skip ,
+.Cm stop ,
+.Cm toggle ,
+.Cm status ,
+and
+.Cm clear .
+.Sh SEE ALSO
+.Xr musicd 1 ,
+.Xr sq 1

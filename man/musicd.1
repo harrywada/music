@@ -1,0 +1,68 @@
+.Dd June 2, 2026
+.Dt MUSICD 1
+.Os
+.Sh NAME
+.Nm musicd
+.Nd music playback daemon
+.Sh SYNOPSIS
+.Nm
+.Ar socket-path
+.Sh DESCRIPTION
+.Nm
+runs the music playback daemon and listens for commands on the Unix-domain
+socket at
+.Ar socket-path .
+It manages a queue of Matroska chapters and starts
+.Xr play 1
+for the active song.
+.Pp
+The queue is restored from and saved to
+.Pa $XDG_STATE_HOME/music/playlist.txt ,
+or
+.Pa ~/.local/state/music/playlist.txt
+when
+.Ev XDG_STATE_HOME
+is unset.
+.Sh COMMANDS
+Clients send one newline-terminated command per connection.
+The public client commands are normally sent with
+.Xr sc 1
+and
+.Xr sq 1 .
+.Pp
+.Bl -tag -width clearall -compact
+.It Cm exit
+Stop the daemon.
+.It Cm list
+Write queued song references to the client.
+.It Cm status
+Write playback state and queue mode to the client.
+.It Cm loop
+Cycle played songs to the end of the queue.
+.It Cm consume
+Remove songs after playback.
+.It Cm pause
+Pause playback.
+.It Cm play
+Start or resume playback.
+.It Cm skip
+Skip the current song.
+.It Cm stop
+Stop playback.
+.It Cm toggle
+Toggle between playing and paused.
+.It Cm clear
+Remove queued songs after the active song.
+.It Cm clearall
+Remove all queued songs and stop playback.
+.It Cm queue Ar song
+Append a song reference.
+.It Cm insert Ar index song
+Insert a song reference.
+.El
+.Sh SEE ALSO
+.Xr play 1 ,
+.Xr sc 1 ,
+.Xr sf 1 ,
+.Xr sp 1 ,
+.Xr sq 1
