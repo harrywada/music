@@ -302,8 +302,11 @@ tag_scope(int fd, uint64_t chapter_uid, uint64_t track_uid)
 				case MKV_TAGCHAPTERUID:
 					if (read_uint_body(fd, child_end, &tmp)) {
 						has_any_chapter = true;
-						if (tmp == chapter_uid)
+						if (tmp == chapter_uid) {
 							has_matching_chapter = true;
+							seek(fd, targets_end);
+							return SCOPE_CHAPTER;
+						}
 					}
 					break;
 				case MKV_TAGTRACKUID:
