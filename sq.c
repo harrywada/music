@@ -32,6 +32,9 @@ connect_socket(const char *path)
 struct queue_ctx {
 	const char *sockpath;
 	bool        has_pos;
+	bool        replace_active;
+	bool        replace_all;
+	bool        initialized;
 	long        idx; /* current insert_at index; mutated per song */
 	bool        neg; /* true when sq position < 0 */
 };
@@ -47,10 +50,48 @@ send_cmd(const char *sockpath, const char *cmd)
 	return true;
 }
 
+static bool
+init_queue(struct queue_ctx *ctx)
+{
+	if (ctx->initialized)
+		return true;
+
+	if (ctx->replace_all) {
+		const char *cmd = ctx->replace_active ? "clearall" : "clear";
+		if (!send_cmd(ctx->sockpath, cmd))
+			return false;
+	} else if (ctx->replace_active) {
+		if (!send_cmd(ctx->sockpath, "stop"))
+			return false;
+	}
+
+	ctx->initialized = true;
+	return true;
+}
+
+static ssize_t
+read_song_line(char **line, size_t *linecap)
+{
+	ssize_t len;
+
+	while ((len = getline(line, linecap, stdin)) > 0) {
+		while (len > 0
+		    && ((*line)[len - 1] == '\n' || (*line)[len - 1] == '\r'))
+			(*line)[--len] = '\0';
+		if (len)
+			return len;
+	}
+
+	return len;
+}
+
 static int
 queue_song(const char *path, unsigned long uid, void *ud)
 {
 	struct queue_ctx *ctx = ud;
+	if (!init_queue(ctx))
+		return 0;
+
 	int sock = connect_socket(ctx->sockpath);
 	if (sock == -1) return 0;
 	if (ctx->has_pos)
@@ -98,33 +139,30 @@ main(int argc, char *argv[])
 		return 1;
 	}
 
-	if (replace) {
-		const char *cmd = xreplace ? "clearall" : "clear";
-		if (!send_cmd(sockpath, cmd))
-			return 1;
-	} else if (xreplace) {
-		if (!send_cmd(sockpath, "stop"))
-			return 1;
-	}
-
 	struct queue_ctx ctx = {
-		.sockpath = sockpath,
-		.has_pos  = has_pos,
-		.idx      = has_pos ? (xreplace ? pos :
-		            (pos >= 0 ? pos + 1 : pos - 1)) : 0,
-		.neg      = has_pos && pos < 0,
+		.sockpath       = sockpath,
+		.has_pos        = has_pos,
+		.replace_active = xreplace,
+		.replace_all    = replace,
+		.initialized    = false,
+		.idx            = has_pos ? (xreplace ? pos :
+		                  (pos >= 0 ? pos + 1 : pos - 1)) : 0,
+		.neg            = has_pos && pos < 0,
 	};
 
 	char  *line    = NULL;
 	size_t linecap = 0;
-	ssize_t len;
+	ssize_t len = read_song_line(&line, &linecap);
 
-	while ((len = getline(&line, &linecap, stdin)) > 0) {
-		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
-			line[--len] = '\0';
-		if (!len) continue;
-		expand_song(line, queue_song, &ctx);
+	if (len <= 0) {
+		fprintf(stderr, "sq: no songs on standard input\n");
+		free(line);
+		return 0;
 	}
+
+	do {
+		expand_song(line, queue_song, &ctx);
+	} while ((len = read_song_line(&line, &linecap)) > 0);
 
 	free(line);
 	return 0;
