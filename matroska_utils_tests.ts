@@ -417,6 +417,31 @@ write_simpleblock(int fd, uint32_t track, int16_t timecode, const uint8_t *data,
 	write(fd, data, dsz);
 }
 
+/* Write a Block payload. */
+static void
+write_block(int fd, uint32_t track, int16_t timecode, const uint8_t *data, size_t dsz)
+{
+	uint8_t track_vint = 0x80 | (uint8_t) track; /* 1-byte vint */
+	size_t total = 1 + 2 + 1 + dsz;              /* track + tc + flags + data */
+	wid(fd, MKV_BLOCK);
+	wlen(fd, total);
+	write(fd, &track_vint, 1);
+	wbe(fd, (uint16_t) timecode, 2);
+	wbe(fd, 0, 1); /* flags */
+	write(fd, data, dsz);
+}
+
+/* Write a BlockGroup containing one Block and a trailing BlockDuration. */
+static void
+write_blockgroup(int fd, uint32_t track, int16_t timecode,
+                 const uint8_t *data, size_t dsz)
+{
+	struct mstart bg = begin_master(fd, MKV_BLOCKGROUP);
+	  write_block(fd, track, timecode, data, dsz);
+	  wuint(fd, MKV_BLOCKDURATION, 1, 1);
+	end_master(fd, bg);
+}
+
 /* Write a minimal cluster: ClusterTimestamp followed by one SimpleBlock. */
 static void
 write_cluster(int fd, uint64_t ts, uint32_t track, const uint8_t *data, size_t dsz)
@@ -441,6 +466,65 @@ write_cluster(int fd, uint64_t ts, uint32_t track, const uint8_t *data, size_t d
 	uint8_t got[sizeof payload];
 	ck_assert_int_eq(read(fd, got, sizeof got), (ssize_t) sizeof got);
 	ck_assert_mem_eq(got, payload, sizeof payload);
+
+#test nextframe_returns_blockgroup_block_and_skips_duration
+	uint8_t p1[] = { 0x10, 0x11 };
+	uint8_t p2[] = { 0x20 };
+	struct mkv_range r = { .track=1, .ts_scale=1, .start=0, .end=0 };
+	struct mkv_cursor cur = {0};
+
+	struct mstart cl = begin_master(fd, MKV_CLUSTER);
+	  wuint(fd, MKV_CLUSTERTIMESTAMP, 0, 8);
+	  write_blockgroup(fd, 1, 0, p1, sizeof p1);
+	  write_simpleblock(fd, 1, 10, p2, sizeof p2);
+	end_master(fd, cl);
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert_int_eq(mkv_nextframe(fd, &cur, &r), (ssize_t) sizeof p1);
+	uint8_t got1[sizeof p1];
+	ck_assert_int_eq(read(fd, got1, sizeof got1), (ssize_t) sizeof got1);
+	ck_assert_mem_eq(got1, p1, sizeof p1);
+
+	ck_assert_int_eq(mkv_nextframe(fd, &cur, &r), (ssize_t) sizeof p2);
+	uint8_t got2[sizeof p2];
+	ck_assert_int_eq(read(fd, got2, sizeof got2), (ssize_t) sizeof got2);
+	ck_assert_mem_eq(got2, p2, sizeof p2);
+
+#test nextframe_skips_wrong_track_blockgroup
+	uint8_t wrong[]  = { 0x01, 0x02 };
+	uint8_t target[] = { 0x03 };
+	struct mkv_range r = { .track=1, .ts_scale=1, .start=0, .end=0 };
+	struct mkv_cursor cur = {0};
+
+	struct mstart cl = begin_master(fd, MKV_CLUSTER);
+	  wuint(fd, MKV_CLUSTERTIMESTAMP, 0, 8);
+	  write_blockgroup(fd, 2, 0, wrong, sizeof wrong);
+	  write_simpleblock(fd, 1, 10, target, sizeof target);
+	end_master(fd, cl);
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert_int_eq(mkv_nextframe(fd, &cur, &r), (ssize_t) sizeof target);
+	uint8_t got[sizeof target];
+	ck_assert_int_eq(read(fd, got, sizeof got), (ssize_t) sizeof got);
+	ck_assert_mem_eq(got, target, sizeof target);
+
+#test nextframe_skips_pre_start_blockgroup
+	uint8_t early[]  = { 0x01, 0x02 };
+	uint8_t target[] = { 0x03 };
+	struct mkv_range r = { .track=1, .ts_scale=1, .start=100, .end=0 };
+	struct mkv_cursor cur = {0};
+
+	struct mstart cl = begin_master(fd, MKV_CLUSTER);
+	  wuint(fd, MKV_CLUSTERTIMESTAMP, 0, 8);
+	  write_blockgroup(fd, 1, 0, early, sizeof early);
+	  write_simpleblock(fd, 1, 100, target, sizeof target);
+	end_master(fd, cl);
+	lseek(fd, 0, SEEK_SET);
+
+	ck_assert_int_eq(mkv_nextframe(fd, &cur, &r), (ssize_t) sizeof target);
+	uint8_t got[sizeof target];
+	ck_assert_int_eq(read(fd, got, sizeof got), (ssize_t) sizeof got);
+	ck_assert_mem_eq(got, target, sizeof target);
 
 #test nextframe_skips_wrong_track
 	uint8_t payload[] = { 0x01, 0x02 };
@@ -472,6 +556,27 @@ write_cluster(int fd, uint64_t ts, uint32_t track, const uint8_t *data, size_t d
 	lseek(fd, 0, SEEK_SET);
 
 	ck_assert_int_eq(mkv_nextframe(fd, &cur, &r), (ssize_t) sizeof target);
+
+#test nextframe_consecutive_ranges_partition_pcm_block
+	uint8_t data[10] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+	struct mkv_range left = {
+	    .track=1, .ts_scale=1, .start=0, .end=3000000,
+	    .sample_rate=1000, .frame_sz=2
+	};
+	struct mkv_range right = {
+	    .track=1, .ts_scale=1, .start=3000000, .end=0,
+	    .sample_rate=1000, .frame_sz=2
+	};
+
+	write_cluster(fd, 0, 1, data, sizeof data);
+	lseek(fd, 0, SEEK_SET);
+	struct mkv_cursor cur_left = {0};
+	ck_assert_int_eq(mkv_nextframe(fd, &cur_left, &left), 6);
+
+	lseek(fd, 0, SEEK_SET);
+	struct mkv_cursor cur_right = {0};
+	ck_assert_int_eq(mkv_nextframe(fd, &cur_right, &right), 4);
+	ck_assert_uint_eq(cur_right.leading_skip, 6);
 
 #test nextframe_returns_zero_at_chapter_end
 	uint8_t payload[] = { 0x01 };

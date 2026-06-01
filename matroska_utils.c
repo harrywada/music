@@ -88,6 +88,24 @@ mkv_findcue(int fd, uint64_t start, uint64_t ts_scale, uint32_t track, off_t *ou
 	return 1;
 }
 
+static size_t
+pcm_bytes_between(uint64_t start, uint64_t end, uint64_t sample_rate,
+                  size_t frame_sz)
+{
+	return (size_t)((end - start) * sample_rate / 1000000000ULL)
+	     * frame_sz;
+}
+
+static void
+skip_payload_and_group(int fd, struct mkv_cursor *cursor, size_t n)
+{
+	seek(fd, pos(fd) + (off_t) n);
+	if (cursor->blockgroup_end > 0) {
+		seek(fd, cursor->blockgroup_end);
+		cursor->blockgroup_end = 0;
+	}
+}
+
 ssize_t
 mkv_nextframe(int fd, struct mkv_cursor *cursor, const struct mkv_range *range)
 {
@@ -96,10 +114,22 @@ mkv_nextframe(int fd, struct mkv_cursor *cursor, const struct mkv_range *range)
 	if (cursor->pending_skip > 0) {
 		seek(fd, pos(fd) + (off_t) cursor->pending_skip);
 		cursor->pending_skip = 0;
+		if (cursor->blockgroup_end > 0) {
+			seek(fd, cursor->blockgroup_end);
+			cursor->blockgroup_end = 0;
+		}
 		return 0;
 	}
+	if (cursor->blockgroup_end > 0) {
+		seek(fd, cursor->blockgroup_end);
+		cursor->blockgroup_end = 0;
+	}
 
-	for (;;) switch (ebml_peek(fd)) {
+	for (;;) {
+		if (cursor->blockgroup_end > 0 && pos(fd) >= cursor->blockgroup_end)
+			cursor->blockgroup_end = 0;
+
+		switch (ebml_peek(fd)) {
 	case MKV_CLUSTER:
 		if (ebml_descend(fd, MKV_CLUSTER) == -1)
 			goto err;
@@ -108,7 +138,8 @@ mkv_nextframe(int fd, struct mkv_cursor *cursor, const struct mkv_range *range)
 		break;
 
 	case MKV_BLOCKGROUP:
-		ebml_descend(fd, MKV_BLOCKGROUP);
+		if ((cursor->blockgroup_end = ebml_descend(fd, MKV_BLOCKGROUP)) == -1)
+			goto err;
 		break;
 
 	case MKV_SIMPLEBLOCK:
@@ -120,7 +151,7 @@ mkv_nextframe(int fd, struct mkv_cursor *cursor, const struct mkv_range *range)
 			goto err;
 
 		if (vint_value(b.track) != range->track) {
-			seek(fd, pos(fd) + b.frames_sz);
+			skip_payload_and_group(fd, cursor, b.frames_sz);
 			break;
 		}
 
@@ -128,27 +159,27 @@ mkv_nextframe(int fd, struct mkv_cursor *cursor, const struct mkv_range *range)
 		                  * (cursor->cluster.ts + (uint64_t) b.timecode);
 
 		if (ts < range->start) {
-			if (range->frame_sz == 0) {
-				seek(fd, pos(fd) + b.frames_sz);
+			if (range->sample_rate == 0 || range->frame_sz == 0) {
+				skip_payload_and_group(fd, cursor, b.frames_sz);
 				break;
 			}
 			const size_t skip =
-			    (size_t)((range->start - ts) * range->sample_rate
-			             / 1000000000ULL) * range->frame_sz;
+			    pcm_bytes_between(ts, range->start,
+			                      range->sample_rate, range->frame_sz);
 			if (skip >= b.frames_sz) {
-				seek(fd, pos(fd) + b.frames_sz);
+				skip_payload_and_group(fd, cursor, b.frames_sz);
 				break;
 			}
 			const size_t tail = b.frames_sz - skip;
 			size_t play = tail, end_skip = 0;
 			if (range->end) {
 				const size_t cap =
-				    (size_t)((range->end - range->start) * range->sample_rate
-				             / 1000000000ULL) * range->frame_sz;
+				    pcm_bytes_between(range->start, range->end,
+				                      range->sample_rate, range->frame_sz);
 				if (cap < tail) { play = cap; end_skip = tail - cap; }
 			}
 			if (play == 0) {
-				seek(fd, pos(fd) + b.frames_sz);
+				skip_payload_and_group(fd, cursor, b.frames_sz);
 				return 0;
 			}
 			cursor->leading_skip = skip;
@@ -158,19 +189,19 @@ mkv_nextframe(int fd, struct mkv_cursor *cursor, const struct mkv_range *range)
 		}
 
 		if (range->end && ts >= range->end) {
-			seek(fd, pos(fd) + b.frames_sz);
+			skip_payload_and_group(fd, cursor, b.frames_sz);
 			return 0;
 		}
 
 		cursor->leading_skip = 0;
 		cursor->block_ts     = ts;
 
-		if (range->end && range->frame_sz > 0) {
+		if (range->end && range->sample_rate > 0 && range->frame_sz > 0) {
 			const size_t max =
-			    (size_t)((range->end - ts) * range->sample_rate
-			             / 1000000000ULL) * range->frame_sz;
+			    pcm_bytes_between(ts, range->end,
+			                      range->sample_rate, range->frame_sz);
 			if (max == 0) {
-				seek(fd, pos(fd) + b.frames_sz);
+				skip_payload_and_group(fd, cursor, b.frames_sz);
 				return 0;
 			}
 			if (max < b.frames_sz) {
@@ -186,7 +217,12 @@ mkv_nextframe(int fd, struct mkv_cursor *cursor, const struct mkv_range *range)
 	case 0:
 		[[fallthrough]];
 	default:
+		if (cursor->blockgroup_end > 0 && pos(fd) < cursor->blockgroup_end) {
+			ebml_skip(fd, EBML_ANY_ELEMENT);
+			break;
+		}
 		return -1;
+		}
 	}
 
 err:

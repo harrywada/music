@@ -20,6 +20,7 @@ struct mkv_cursor {
 	uint64_t block_ts;          /* nanoseconds; effective start of last returned block */
 	size_t   leading_skip;      /* bytes to seek past at fd before reading (start truncation) */
 	size_t   pending_skip;      /* bytes to seek past after reading the block (end truncation) */
+	off_t    blockgroup_end;    /* nonzero while caller is reading a BlockGroup Block */
 };
 
 /* Result of mkv_findcoverart(). Strings are NUL-terminated and truncated
