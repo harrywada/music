@@ -1,10 +1,12 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include "ebml.h"
@@ -14,6 +16,188 @@
 #include "filter.h"
 #include "song.h"
 #include "utils.h"
+
+static int eval_song(const char *, unsigned long, void *);
+
+static char *
+xstrdup(const char *s)
+{
+	char *dup = strdup(s);
+	if (!dup)
+		die(errno, "strdup");
+	return dup;
+}
+
+static char *
+xjoin(const char *a, const char *b)
+{
+	size_t alen = strlen(a);
+	size_t blen = strlen(b);
+	char *s = malloc(alen + blen + 1);
+	if (!s)
+		die(errno, "malloc");
+	memcpy(s, a, alen);
+	memcpy(s + alen, b, blen + 1);
+	return s;
+}
+
+static char *
+join_path(const char *dir, const char *name)
+{
+	char *slash = xjoin(dir, "/");
+	char *path = xjoin(slash, name);
+	free(slash);
+	return path;
+}
+
+static char *
+home_path(const char *path)
+{
+	const char *home = getenv("HOME");
+	if (!home || !*home)
+		return NULL;
+	return join_path(home, path);
+}
+
+static char *
+xdg_config_path(void)
+{
+	const char *config = getenv("XDG_CONFIG_HOME");
+	if (config && *config)
+		return join_path(config, "user-dirs.dirs");
+	return home_path(".config/user-dirs.dirs");
+}
+
+static char *
+expand_home(const char *s)
+{
+	const char *home = getenv("HOME");
+	if (!home)
+		home = "";
+	if (strncmp(s, "$HOME", 5) == 0)
+		return xjoin(home, s + 5);
+	if (strncmp(s, "${HOME}", 7) == 0)
+		return xjoin(home, s + 7);
+	return xstrdup(s);
+}
+
+static char *
+parse_xdg_value(char *line)
+{
+	char *p = strchr(line, '=');
+	if (!p)
+		return NULL;
+	p++;
+
+	if (*p == '"') {
+		char *start = ++p;
+		char *out = p;
+		while (*p && *p != '"') {
+			if (*p == '\\' && p[1])
+				p++;
+			*out++ = *p++;
+		}
+		*out = '\0';
+		return expand_home(start);
+	}
+
+	char *end = p + strlen(p);
+	while (end > p && (end[-1] == '\n' || end[-1] == '\r'))
+		*--end = '\0';
+	return expand_home(p);
+}
+
+static char *
+music_dir(void)
+{
+	const char *env = getenv("XDG_MUSIC_DIR");
+	if (env && *env)
+		return expand_home(env);
+
+	char *config = xdg_config_path();
+	if (config) {
+		FILE *fp = fopen(config, "r");
+		free(config);
+		if (fp) {
+			char   *line = NULL;
+			size_t  cap = 0;
+			char   *path = NULL;
+			while (getline(&line, &cap, fp) > 0) {
+				if (strncmp(line, "XDG_MUSIC_DIR=", 14) == 0) {
+					path = parse_xdg_value(line);
+					break;
+				}
+			}
+			free(line);
+			fclose(fp);
+			if (path)
+				return path;
+		}
+	}
+
+	return home_path("Music");
+}
+
+static void
+process_path(const char *path, struct filter_node *filter)
+{
+	if (*path)
+		expand_song(path, eval_song, filter);
+}
+
+static void
+process_stdin(struct filter_node *filter)
+{
+	char   *line    = NULL;
+	size_t  linecap = 0;
+	ssize_t len;
+
+	while ((len = getline(&line, &linecap, stdin)) > 0) {
+		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+			line[--len] = '\0';
+		process_path(line, filter);
+	}
+
+	free(line);
+}
+
+static void
+process_music_dir(struct filter_node *filter)
+{
+	char *dirpath = music_dir();
+	if (!dirpath) {
+		warn(0, "sf: can't find music directory");
+		return;
+	}
+
+	DIR *dir = opendir(dirpath);
+	if (!dir) {
+		warn(errno, "%s", dirpath);
+		free(dirpath);
+		return;
+	}
+
+	struct dirent *de;
+	while ((de = readdir(dir))) {
+		if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
+			continue;
+
+		char *path = join_path(dirpath, de->d_name);
+		struct stat st;
+		if (stat(path, &st) == -1) {
+			warn(errno, "%s", path);
+			free(path);
+			continue;
+		}
+		if (S_ISREG(st.st_mode))
+			process_path(path, filter);
+		free(path);
+	}
+
+	if (closedir(dir) == -1)
+		warn(errno, "%s", dirpath);
+	free(dirpath);
+}
 
 /* Open a Matroska file, skip EBML header, descend into Segment,
    read seekinfo.  Returns fd on success, -1 on failure (already warned). */
@@ -92,18 +276,11 @@ main(int argc, char *argv[])
 		filter_parse(argc - 1, (const char **)(argv + 1), &err);
 	if (err) return 1;
 
-	char   *line    = NULL;
-	size_t  linecap = 0;
-	ssize_t len;
+	if (isatty(STDIN_FILENO))
+		process_music_dir(filter);
+	else
+		process_stdin(filter);
 
-	while ((len = getline(&line, &linecap, stdin)) > 0) {
-		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
-			line[--len] = '\0';
-		if (!len) continue;
-		expand_song(line, eval_song, filter);
-	}
-
-	free(line);
 	filter_free(filter);
 	return 0;
 }
