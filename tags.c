@@ -53,6 +53,18 @@ read_string_body(int fd, off_t end, char **dest, size_t *sz)
 }
 
 static int
+read_string_body_buf(int fd, off_t end, char *dest, size_t dest_sz)
+{
+	size_t len = (size_t)(end - pos(fd));
+	size_t n = len < dest_sz - 1 ? len : dest_sz - 1;
+
+	if (read(fd, dest, n) != (ssize_t)n)
+		return 0;
+	dest[n] = '\0';
+	return 1;
+}
+
+static int
 append_tag_value(struct tag_values *tv, const char *s, size_t len)
 {
 	size_t n = tv->count + 1;
@@ -136,9 +148,9 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
                     struct song_tags *ct, struct song_tags *tt,
                     struct song_tags *at)
 {
-	char  *name = NULL, *value = NULL;
-	size_t name_sz = 0, value_sz = 0;
-	char   name_buf[64];
+	char  *value = NULL;
+	size_t value_sz = 0;
+	char   name_buf[64] = {0};
 
 	/* TagName MUST be first per the Matroska spec; skip the backward
 	   seek for well-formed files.  Fall back to a two-pass approach
@@ -149,13 +161,14 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
 		uint32_t id;
 
 		if (ebml_element(fd, &id, &child_end) && id == MKV_TAGNAME) {
-			read_string_body(fd, child_end, &name, &name_sz);
+			read_string_body_buf(fd, child_end, name_buf,
+			                     sizeof name_buf);
 			seek(fd, child_end);
 		} else {
 			seek(fd, child_start);
 		}
 	}
-	if (name == NULL) {
+	if (name_buf[0] == '\0') {
 		off_t body_start = pos(fd);
 		while (pos(fd) < end) {
 			off_t child_end;
@@ -164,7 +177,8 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
 			if (!ebml_element(fd, &id, &child_end))
 				break;
 			if (id == MKV_TAGNAME) {
-				read_string_body(fd, child_end, &name, &name_sz);
+				read_string_body_buf(fd, child_end, name_buf,
+				                     sizeof name_buf);
 				break;
 			}
 			seek(fd, child_end);
@@ -172,17 +186,8 @@ read_simpletag_body(int fd, off_t end, int scope, const char *parent_name,
 		seek(fd, body_start);
 	}
 
-	if (!name || name_sz == 0) {
-		free(name);
+	if (name_buf[0] == '\0')
 		return;
-	}
-
-	size_t nlen = name_sz < sizeof name_buf - 1 ? name_sz : sizeof name_buf - 1;
-	memcpy(name_buf, name, nlen);
-	name_buf[nlen] = '\0';
-	free(name);
-	name = NULL;
-	name_sz = 0;
 
 	/* Forward pass: fd is already past TagName in the fast path, or
 	   reset to body_start in the fallback (TagName skipped in switch). */
