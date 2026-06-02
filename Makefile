@@ -20,7 +20,7 @@ MPRIS_LFLAGS = $(shell $(PKG_CONFIG) --libs lib$(SDBUS))
 endif
 
 .PHONY: all
-all: play musicd sq sf sc sp
+all: play musicd sq sf sc sp so
 
 play: LDLIBS += -lasound
 play: play.c ebml.o matroska.o matroska_utils.o utils.o log_syslog.o
@@ -30,7 +30,8 @@ musicd: LDLIBS += $(MPRIS_LFLAGS)
 sq: sq.c ebml.o matroska.o matroska_utils.o song.o utils.o log_stderr.o
 sf: sf.c filter.o tags.o ebml.o matroska.o matroska_utils.o song.o utils.o log_stderr.o
 sc: sc.c utils.o log_stderr.o
-sp: sp.c format.o tags.o ebml.o matroska.o matroska_utils.o song.o utils.o log_stderr.o
+sp: sp.c format.o fields.o tags.o ebml.o matroska.o matroska_utils.o song.o utils.o log_stderr.o
+so: so.c fields.o tags.o ebml.o matroska.o matroska_utils.o song.o utils.o log_stderr.o
 
 .SUFFIXES: _tests.ts _tests.c
 _tests.ts_tests.c:
@@ -39,7 +40,10 @@ _tests.ts_tests.c:
 LDLIBS += -lcheck
 cmds_tests: cmds_tests.c cmds.o state.o queue.o song.o utils.o log_stderr.o ebml.o matroska.o matroska_utils.o
 filter_tests: filter_tests.c filter.o tags.o ebml.o utils.o log_stderr.o
-format_tests: format_tests.c format.o tags.o ebml.o utils.o log_stderr.o
+format_tests: format_tests.c format.o fields.o tags.o ebml.o utils.o log_stderr.o
+fields_tests: fields_tests.c fields.o
+so_tests.c: so.c
+so_tests: so_tests.c fields.o tags.o ebml.o matroska.o matroska_utils.o song.o utils.o log_stderr.o
 ebml_tests: ebml_tests.c ebml.o utils.o log_stderr.o
 matroska_tests: matroska_tests.c matroska.o ebml.o utils.o log_stderr.o
 matroska_utils_tests: matroska_utils_tests.c matroska_utils.o matroska.o ebml.o utils.o log_stderr.o
@@ -58,9 +62,9 @@ install: all
 	install -d $(DESTDIR)$(LIBEXECDIR) $(DESTDIR)$(BINDIR) \
 		$(DESTDIR)$(MANDIR)/man1
 	install -m755 play $(DESTDIR)$(LIBEXECDIR)/play
-	install -m755 musicd sq sf sc sp $(DESTDIR)$(BINDIR)/
+	install -m755 musicd sq sf sc sp so $(DESTDIR)$(BINDIR)/
 	install -m644 man/*.1 $(DESTDIR)$(MANDIR)/man1/
 
 .PHONY: clean
 clean:
-	rm -rf musicd play sq sf sc sp *_tests *_tests.c *.o log_syslog.o log_stderr.o
+	rm -rf musicd play sq sf sc sp so *_tests *_tests.c *.o log_syslog.o log_stderr.o

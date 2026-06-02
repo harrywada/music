@@ -74,9 +74,9 @@ capture_print(const struct format *fmt, const struct song_tags *tags)
 #test compile_all_fields
 	const char *fmts[] = {
 		"{date}", "{orig-date}", "{artist}", "{title}",
-		"{genre}", "{album}", "{#}",
+		"{genre}", "{album}", "{#}", "{disc}",
 	};
-	for (int i = 0; i < 7; i++) {
+	for (int i = 0; i < 8; i++) {
 		struct format *f = format_compile(fmts[i]);
 		ck_assert_ptr_nonnull(f);
 		format_free(f);

@@ -1,0 +1,47 @@
+.Dd June 2, 2026
+.Dt SO 1
+.Os
+.Sh NAME
+.Nm so
+.Nd order songs by Matroska tags
+.Sh SYNOPSIS
+.Nm
+.Op Ar field ...
+.Sh DESCRIPTION
+.Nm
+reads paths or song references from standard input, expands paths to Matroska
+chapters, orders the songs by metadata, and writes song references to standard
+output.
+.Pp
+A song reference has the form
+.Ar path Ns # Ns Ar chapter-id .
+When an input line is only a path,
+.Nm
+expands all chapters in that file.
+.Pp
+If no fields are specified, songs are ordered by
+.Cm album
+and then
+.Cm # .
+.Sh FIELDS
+Fields are
+.Cm date ,
+.Cm orig-date ,
+.Cm artist ,
+.Cm title ,
+.Cm genre ,
+.Cm album ,
+.Cm # ,
+and
+.Cm disc .
+.Pp
+The
+.Cm #
+and
+.Cm disc
+fields are ordered numerically.
+Other fields are ordered case-insensitively.
+.Sh SEE ALSO
+.Xr sf 1 ,
+.Xr sp 1 ,
+.Xr sq 1
