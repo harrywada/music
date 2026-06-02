@@ -56,16 +56,17 @@ tags_add(struct song_tags *t, enum tag_field f, const char *val)
 #test parse_all_fields
 	const char *fields[] = {
 		"date", "orig-date", "artist", "title", "genre", "album", "track",
+		"disc",
 	};
 	enum tag_field expected[] = {
 		TAG_DATE, TAG_ORIG_DATE, TAG_ARTIST, TAG_TITLE,
-		TAG_GENRE, TAG_ALBUM, TAG_TRACK,
+		TAG_GENRE, TAG_ALBUM, TAG_TRACK, TAG_DISC,
 	};
-	for (int i = 0; i < 7; i++) {
+	for (int i = 0; i < 8; i++) {
 		int err = 0;
 		const char *argv[] = { fields[i], "=",
 		    /* valid value for each type */
-		    (i == 0 || i == 1) ? "2012" : (i == 6) ? "1" : "x" };
+		    (i == 0 || i == 1) ? "2012" : (i >= 6) ? "1" : "x" };
 		struct filter_node *n = filter_parse(3, argv, &err);
 		ck_assert_int_eq(err, 0);
 		ck_assert_ptr_nonnull(n);
@@ -293,6 +294,15 @@ tags_add(struct song_tags *t, enum tag_field f, const char *val)
 	const char *argv[] = { "track", ">", "3" };
 	struct filter_node *n = filter_parse(3, argv, &err);
 	ck_assert(!filter_eval(n, &t));
+	filter_free(n); song_tags_free(&t);
+
+#test eval_disc_numeric_gt
+	struct song_tags t = {0};
+	tags_set(&t, TAG_DISC, "2");
+	int err = 0;
+	const char *argv[] = { "disc", ">", "1" };
+	struct filter_node *n = filter_parse(3, argv, &err);
+	ck_assert(filter_eval(n, &t));
 	filter_free(n); song_tags_free(&t);
 
 #test eval_date_exact

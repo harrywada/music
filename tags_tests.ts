@@ -126,7 +126,7 @@ fd_teardown(void)
 	end_master(fd, ts);
 	lseek(fd, 0, SEEK_SET);
 
-	mkv_readsongtags(fd, 0xAA, 0x01, &tags);
+	mkv_readsongtags(fd, 0xAA, 0x01, 0, &tags);
 	ck_assert_uint_eq(tags.fields[TAG_ARTIST].count, 1);
 	ck_assert_str_eq(tags.fields[TAG_ARTIST].vals[0], "The Band");
 	song_tags_free(&tags);
@@ -162,7 +162,7 @@ fd_teardown(void)
 	lseek(fd, 0, SEEK_SET);
 
 	/* Reading for track 0xBB: must see only "Artist B". */
-	mkv_readsongtags(fd, 0, 0xBB, &tags);
+	mkv_readsongtags(fd, 0, 0xBB, 0, &tags);
 	ck_assert_uint_eq(tags.fields[TAG_ARTIST].count, 1);
 	ck_assert_str_eq(tags.fields[TAG_ARTIST].vals[0], "Artist B");
 	song_tags_free(&tags);
@@ -196,9 +196,39 @@ fd_teardown(void)
 	end_master(fd, ts);
 	lseek(fd, 0, SEEK_SET);
 
-	mkv_readsongtags(fd, 0xCC, 0xAA, &tags);
+	mkv_readsongtags(fd, 0xCC, 0xAA, 0, &tags);
 	ck_assert_uint_eq(tags.fields[TAG_TITLE].count, 1);
 	ck_assert_str_eq(tags.fields[TAG_TITLE].vals[0], "Chapter Title");
+	song_tags_free(&tags);
+
+#test readsongtags_disc_uses_matching_edition_uid
+	struct song_tags tags = {0};
+
+	struct mstart ts = begin_master(fd, MKV_TAGS);
+	  struct mstart t1 = begin_master(fd, MKV_TAG);
+	    struct mstart tgt1 = begin_master(fd, MKV_TARGETS);
+	      wuint(fd, MKV_TAGEDITIONUID, 0x11, 1);
+	    end_master(fd, tgt1);
+	    struct mstart st1 = begin_master(fd, MKV_SIMPLETAG);
+	      wstring(fd, MKV_TAGNAME,   "PART_NUMBER");
+	      wstring(fd, MKV_TAGSTRING, "1");
+	    end_master(fd, st1);
+	  end_master(fd, t1);
+	  struct mstart t2 = begin_master(fd, MKV_TAG);
+	    struct mstart tgt2 = begin_master(fd, MKV_TARGETS);
+	      wuint(fd, MKV_TAGEDITIONUID, 0x22, 1);
+	    end_master(fd, tgt2);
+	    struct mstart st2 = begin_master(fd, MKV_SIMPLETAG);
+	      wstring(fd, MKV_TAGNAME,   "PART_NUMBER");
+	      wstring(fd, MKV_TAGSTRING, "2");
+	    end_master(fd, st2);
+	  end_master(fd, t2);
+	end_master(fd, ts);
+	lseek(fd, 0, SEEK_SET);
+
+	mkv_readsongtags(fd, 0, 0, 0x22, &tags);
+	ck_assert_uint_eq(tags.fields[TAG_DISC].count, 1);
+	ck_assert_str_eq(tags.fields[TAG_DISC].vals[0], "2");
 	song_tags_free(&tags);
 
 #main-pre

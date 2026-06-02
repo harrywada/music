@@ -91,9 +91,22 @@ refresh_tags(struct mpris *m, const struct song *s)
 		return;
 
 	if (si.tags) {
+		struct mkv_chapter chapter = {0};
+		struct mkv_track track = {0};
+
+		if (si.chapters) {
+			seek(fd, si.segment + si.chapters);
+			mkv_findchapter(fd, (uint64_t)s->uid, &chapter);
+		}
+		if (si.tracks && chapter.uid) {
+			seek(fd, si.segment + si.tracks);
+			mkv_findtrack(fd, chapter.track_uids, &track);
+		}
+
 		seek(fd, si.segment + si.tags);
 		m->tags = (struct song_tags){0};
-		mkv_readsongtags(fd, (uint64_t)s->uid, 0, &m->tags);
+		mkv_readsongtags(fd, (uint64_t)s->uid, track.uid,
+		                 chapter.edition_uid, &m->tags);
 		m->have_tags = true;
 		m->cur_uid   = s->uid;
 	}

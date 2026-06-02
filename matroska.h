@@ -47,6 +47,7 @@
 
 #define MKV_CHAPTERS 0x1043a770
 #define MKV_EDITIONENTRY 0x45b9
+#define MKV_EDITIONUID 0x45bc
 #define MKV_CHAPTERATOM 0xb6
 #define MKV_CHAPTERUID 0x73c4
 #define MKV_CHAPTERTIMESTART 0x91
@@ -59,6 +60,7 @@
 #define MKV_TAG             0x7373
 #define MKV_TARGETS         0x63c0
 #define MKV_TARGETTYPEVALUE 0x68ca
+#define MKV_TAGEDITIONUID   0x63c9
 #define MKV_TAGTRACKUID     0x63c5
 #define MKV_TAGCHAPTERUID   0x63c4
 #define MKV_SIMPLETAG       0x67c8
@@ -116,6 +118,7 @@ struct mkv_block {
 };
 
 struct mkv_chapter {
+	uint64_t edition_uid;
 	uint64_t uid;
 	uint64_t start, end; /* Zero `end` value implies end of the track. */
 	uint64_t track_uids[TRACKS_MAX]; /* If all 0, all tracks apply. */

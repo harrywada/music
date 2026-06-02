@@ -273,11 +273,14 @@ song_tags_free(struct song_tags *t)
  *
  * Returns a SCOPE_* constant, or -1 if this Tag should be skipped. */
 static int
-tag_scope(int fd, uint64_t chapter_uid, uint64_t track_uid)
+tag_scope(int fd, uint64_t chapter_uid, uint64_t track_uid,
+          uint64_t edition_uid)
 {
 	uint32_t target_type      = 50;
 	bool has_any_chapter      = false;
 	bool has_matching_chapter = false;
+	bool has_any_edition      = false;
+	bool has_matching_edition = false;
 	bool has_any_track        = false;
 	bool has_matching_track   = false;
 
@@ -298,6 +301,13 @@ tag_scope(int fd, uint64_t chapter_uid, uint64_t track_uid)
 				case MKV_TARGETTYPEVALUE:
 					if (read_uint_body(fd, child_end, &tmp))
 						target_type = (uint32_t)tmp;
+					break;
+				case MKV_TAGEDITIONUID:
+					if (read_uint_body(fd, child_end, &tmp)) {
+						has_any_edition = true;
+						if (tmp == edition_uid)
+							has_matching_edition = true;
+					}
 					break;
 				case MKV_TAGCHAPTERUID:
 					if (read_uint_body(fd, child_end, &tmp)) {
@@ -330,6 +340,8 @@ tag_scope(int fd, uint64_t chapter_uid, uint64_t track_uid)
 	 * remuxed (and thus have stale UIDs) are not silently discarded. */
 	if (has_matching_chapter) return SCOPE_CHAPTER;
 	if (has_any_chapter)      return -1;
+	if (has_matching_edition) return SCOPE_EDITION;
+	if (has_any_edition)      return -1;
 	if (has_matching_track)   return SCOPE_TRACK;
 	if (has_any_track)        return -1;
 	if (target_type == 30)    return SCOPE_TRACK;
@@ -340,7 +352,7 @@ tag_scope(int fd, uint64_t chapter_uid, uint64_t track_uid)
 
 int
 mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
-                 struct song_tags *out)
+                 uint64_t edition_uid, struct song_tags *out)
 {
 	struct song_tags ct = {0}, tt = {0}, at = {0};
 	off_t tags_end;
@@ -355,7 +367,8 @@ mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
 			if (id != MKV_TAG)
 				goto next_tag;
 
-			int scope = tag_scope(fd, chapter_uid, track_uid);
+			int scope = tag_scope(fd, chapter_uid, track_uid,
+			                      edition_uid);
 			if (scope < 0)
 				goto next_tag;
 

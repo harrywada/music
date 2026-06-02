@@ -172,12 +172,14 @@ fd_teardown(void)
 
 	struct mstart ch = begin_master(fd, MKV_CHAPTERS);
 	  struct mstart ee1 = begin_master(fd, MKV_EDITIONENTRY);
+	    wuint(fd, MKV_EDITIONUID, 0xE1, 1);
 	    struct mstart ca1 = begin_master(fd, MKV_CHAPTERATOM);
 	      wuint(fd, MKV_CHAPTERUID,      0x1111, 8);
 	      wuint(fd, MKV_CHAPTERTIMESTART, 0,      8);
 	    end_master(fd, ca1);
 	  end_master(fd, ee1);
 	  struct mstart ee2 = begin_master(fd, MKV_EDITIONENTRY);
+	    wuint(fd, MKV_EDITIONUID, 0xE2, 1);
 	    struct mstart ca2 = begin_master(fd, MKV_CHAPTERATOM);
 	      wuint(fd, MKV_CHAPTERUID,      0x2222, 8);
 	      wuint(fd, MKV_CHAPTERTIMESTART, 9000,   8);
@@ -188,6 +190,7 @@ fd_teardown(void)
 
 	ck_assert(mkv_findchapter(fd, 0x2222, &c));
 	ck_assert_uint_eq(c.uid, 0x2222);
+	ck_assert_uint_eq(c.edition_uid, 0xE2);
 
 /* ================================================================== */
 /* mkv_findtrack                                                       */

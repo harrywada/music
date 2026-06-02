@@ -255,7 +255,8 @@ eval_song(const char *path, unsigned long uid, void *ud)
 
 	if (si.tags) {
 		seek(fd, si.segment + si.tags);
-		mkv_readsongtags(fd, uid, track.uid, &tags);
+		mkv_readsongtags(fd, uid, track.uid, chapter.edition_uid,
+		                 &tags);
 	}
 
 	print = !filter || filter_eval(filter, &tags);

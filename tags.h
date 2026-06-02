@@ -27,6 +27,6 @@ struct song_tags {
 void song_tags_free(struct song_tags *);
 
 /* fd positioned by caller at MKV_TAGS (seek to si.segment + si.tags first). */
-[[gnu::fd_arg_read(1), gnu::nonnull(4)]]
+[[gnu::fd_arg_read(1), gnu::nonnull(5)]]
 int mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
-                     struct song_tags *);
+                     uint64_t edition_uid, struct song_tags *);

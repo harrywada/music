@@ -19,16 +19,22 @@ mkv_findchapter(int fd, uint64_t id, struct mkv_chapter *c)
 
 	for (;;) {
 		off_t end;
+		uint64_t edition_uid = 0;
 
 		if ((end = ebml_descend(fd, MKV_EDITIONENTRY)) == -1)
 			return 0;
 		while (pos(fd) < end) {
+			if (ebml_peek(fd) == MKV_EDITIONUID) {
+				ebml_readuint(fd, MKV_EDITIONUID, &edition_uid);
+				continue;
+			}
 			if (ebml_peek(fd) != MKV_CHAPTERATOM) {
 				ebml_skip(fd, EBML_ANY_ELEMENT);
 				continue;
 			}
 			if (!mkv_readchapteratom(fd, c))
 				return 0;
+			c->edition_uid = edition_uid;
 			if (c->uid == id)
 				return 1;
 		}
@@ -241,6 +247,8 @@ mkv_visitchapters(int fd,
 		return 0;
 
 	while (pos(fd) < chapters_end) {
+		uint64_t edition_uid = 0;
+
 		if (ebml_peek(fd) != MKV_EDITIONENTRY) {
 			ebml_skip(fd, EBML_ANY_ELEMENT);
 			continue;
@@ -249,6 +257,10 @@ mkv_visitchapters(int fd,
 			return visited;
 
 		while (pos(fd) < edition_end) {
+			if (ebml_peek(fd) == MKV_EDITIONUID) {
+				ebml_readuint(fd, MKV_EDITIONUID, &edition_uid);
+				continue;
+			}
 			if (ebml_peek(fd) != MKV_CHAPTERATOM) {
 				ebml_skip(fd, EBML_ANY_ELEMENT);
 				continue;
@@ -257,6 +269,7 @@ mkv_visitchapters(int fd,
 			struct mkv_chapter c;
 			if (!mkv_readchapteratom(fd, &c))
 				return visited;
+			c.edition_uid = edition_uid;
 
 			off_t resume = pos(fd);
 			visited = 1;
