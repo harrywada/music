@@ -74,7 +74,7 @@ capture_print(const struct format *fmt, const struct song_tags *tags)
 #test compile_all_fields
 	const char *fmts[] = {
 		"{date}", "{orig-date}", "{artist}", "{title}",
-		"{genre}", "{album}", "{track}",
+		"{genre}", "{album}", "{#}",
 	};
 	for (int i = 0; i < 7; i++) {
 		struct format *f = format_compile(fmts[i]);
@@ -104,6 +104,10 @@ capture_print(const struct format *fmt, const struct song_tags *tags)
 
 #test compile_unknown_field_error
 	struct format *f = format_compile("{bogus}");
+	ck_assert_ptr_null(f);
+
+#test compile_old_track_field_error
+	struct format *f = format_compile("{track}");
 	ck_assert_ptr_null(f);
 
 #test compile_unterminated_brace
@@ -170,7 +174,7 @@ capture_print(const struct format *fmt, const struct song_tags *tags)
 
 #test print_all_fields
 	struct format *f = format_compile(
-	    "{date}|{orig-date}|{artist}|{title}|{genre}|{album}|{track}");
+	    "{date}|{orig-date}|{artist}|{title}|{genre}|{album}|{#}");
 	struct song_tags t = {0};
 	tags_set(&t, TAG_DATE,      "1965");
 	tags_set(&t, TAG_ORIG_DATE, "1960");
