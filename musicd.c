@@ -167,6 +167,13 @@ load_playlist(struct state *s)
 	fclose(f);
 }
 
+static void
+cleanup_musicd_state(struct state *s)
+{
+	save_playlist(s);
+	cleanup_state(s);
+}
+
 [[gnu::nonnull(1)]]
 static int mksocket(const char *);
 
@@ -382,7 +389,7 @@ main(int argc, char *argv[])
 {
 	openlog("musicd", LOG_PID, LOG_DAEMON);
 
-	[[gnu::cleanup(cleanup_state)]]
+	[[gnu::cleanup(cleanup_musicd_state)]]
 	struct state state;
 
 	[[gnu::cleanup(cleanup_fds)]]
@@ -546,7 +553,4 @@ main(int argc, char *argv[])
 			mpris_notify(mpris, prev, state);
 #endif
 	}
-
-	if (state.mode == EXITING)
-		save_playlist(&state);
 }
