@@ -23,6 +23,13 @@ struct song_tags {
 	struct tag_values fields[TAG_FIELD_COUNT];
 };
 
+struct track_tags {
+	int    has_replaygain_gain;
+	double replaygain_gain_db;
+	int    has_replaygain_peak;
+	double replaygain_peak;
+};
+
 [[gnu::nonnull(1)]]
 void song_tags_free(struct song_tags *);
 
@@ -30,3 +37,6 @@ void song_tags_free(struct song_tags *);
 [[gnu::fd_arg_read(1), gnu::nonnull(5)]]
 int mkv_readsongtags(int fd, uint64_t chapter_uid, uint64_t track_uid,
                      uint64_t edition_uid, struct song_tags *);
+/* fd positioned by caller at MKV_TAGS (seek to si.segment + si.tags first). */
+[[gnu::fd_arg_read(1), gnu::nonnull(3)]]
+int mkv_readtracktags(int fd, uint64_t track_uid, struct track_tags *);

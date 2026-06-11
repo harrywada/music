@@ -23,6 +23,8 @@
 #include <sys/types.h>
 #include "matroska.h"
 #include "matroska_utils.h"
+#include "replaygain.h"
+#include "tags.h"
 
 /* Short helper functions to reduce a bit of redundancy. */
 #define SND(cmp, exit, fn, ...) \
@@ -50,6 +52,7 @@ struct cfg {
 	double   rate;
 	struct mkv_range range;
 	off_t start;
+	struct replaygain rg;
 };
 
 /* Mutable playback cursor: where we are in the stream. */
@@ -88,6 +91,7 @@ static bool read_cfg(int, struct cfg *, uint64_t);
 
 static bool handle_alsa(struct state *);
 static bool handle_sigs(struct state *);
+static void apply_replaygain(struct state *, void *, size_t);
 
 /* Cleanup functions (used with [[cleanup(...)]]). */
 
@@ -164,6 +168,7 @@ handle_alsa(struct state *s)
 				debug(errno, "read");
 				break;
 			}
+			apply_replaygain(s, head(buf), n);
 			buf.n += n;
 			s->play.pending -= n;
 			continue;
@@ -185,6 +190,7 @@ handle_alsa(struct state *s)
 			debug(errno, "read");
 			break;
 		}
+		apply_replaygain(s, head(buf), n);
 		buf.n += n;
 		s->play.pending = (size_t) sz - n;
 	}
@@ -217,6 +223,21 @@ handle_alsa(struct state *s)
 	}
 
 	return true;
+}
+
+static void
+apply_replaygain(struct state *s, void *addr, size_t n)
+{
+	switch (s->cfg.bps) {
+	case 8:
+		replaygain_apply_s8(addr, n, s->cfg.rg);
+		break;
+	case 16:
+		replaygain_apply_s16(addr, n / sizeof(int16_t), s->cfg.rg);
+		break;
+	default:
+		break;
+	}
 }
 
 static bool
@@ -275,6 +296,7 @@ read_cfg(int fd, struct cfg *cfg, uint64_t id)
 	struct mkv_info info;
 	struct mkv_chapter chapter;
 	struct mkv_track track;
+	struct track_tags tags;
 	off_t start_pos;
 
 	memset(cfg, 0, sizeof *cfg);
@@ -320,6 +342,15 @@ read_cfg(int fd, struct cfg *cfg, uint64_t id)
 	cfg->bps               = track.bps;
 	cfg->rate              = track.rate;
 	cfg->start             = si.segment + start_pos;
+	cfg->rg                = (struct replaygain){ .gain = 1.0 };
+
+	if (si.tags) {
+		seek(fd, si.segment + si.tags);
+		if (mkv_readtracktags(fd, track.uid, &tags) &&
+		    tags.has_replaygain_gain)
+			cfg->rg = replaygain_from_tags(tags.replaygain_gain_db,
+			    tags.replaygain_peak, tags.has_replaygain_peak);
+	}
 
 	return true;
 }

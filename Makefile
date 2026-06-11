@@ -22,8 +22,8 @@ endif
 .PHONY: all
 all: play musicd sq sf sc sp so
 
-play: LDLIBS += -lasound
-play: play.c ebml.o matroska.o matroska_utils.o utils.o log_syslog.o
+play: LDLIBS += -lasound -lm
+play: play.c ebml.o matroska.o matroska_utils.o tags.o replaygain.o utils.o log_syslog.o
 musicd: musicd.c cmds.o state.o queue.o song.o utils.o log_syslog.o $(MPRIS_OBJ) matroska.o matroska_utils.o ebml.o
 musicd: CFLAGS  += $(MPRIS_CFLAGS)
 musicd: LDLIBS += $(MPRIS_LFLAGS)
@@ -48,6 +48,8 @@ ebml_tests: ebml_tests.c ebml.o utils.o log_stderr.o
 matroska_tests: matroska_tests.c matroska.o ebml.o utils.o log_stderr.o
 matroska_utils_tests: matroska_utils_tests.c matroska_utils.o matroska.o ebml.o utils.o log_stderr.o
 tags_tests: tags_tests.c tags.o ebml.o matroska.o utils.o log_stderr.o
+replaygain_tests: LDLIBS += -lm
+replaygain_tests: replaygain_tests.c replaygain.o
 queue_tests: queue_tests.c queue.o song.o utils.o log_stderr.o ebml.o matroska.o matroska_utils.o
 song_tests: song_tests.c song.o utils.o log_stderr.o ebml.o matroska.o matroska_utils.o
 utils_tests: utils_tests.c utils.o log_stderr.o

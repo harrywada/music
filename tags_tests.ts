@@ -231,5 +231,92 @@ fd_teardown(void)
 	ck_assert_str_eq(tags.fields[TAG_DISC].vals[0], "2");
 	song_tags_free(&tags);
 
+#tcase mkv_readtracktags
+
+#test readtracktags_reads_replaygain_for_matching_track
+	struct track_tags tags = {0};
+
+	struct mstart ts = begin_master(fd, MKV_TAGS);
+	  struct mstart t1 = begin_master(fd, MKV_TAG);
+	    struct mstart tgt1 = begin_master(fd, MKV_TARGETS);
+	      wuint(fd, MKV_TAGTRACKUID, 0xAA, 4);
+	    end_master(fd, tgt1);
+	    struct mstart st1 = begin_master(fd, MKV_SIMPLETAG);
+	      wstring(fd, MKV_TAGNAME,   "REPLAYGAIN_GAIN");
+	      wstring(fd, MKV_TAGSTRING, "-4.25 dB");
+	    end_master(fd, st1);
+	    struct mstart st2 = begin_master(fd, MKV_SIMPLETAG);
+	      wstring(fd, MKV_TAGNAME,   "REPLAYGAIN_PEAK");
+	      wstring(fd, MKV_TAGSTRING, "0.75");
+	    end_master(fd, st2);
+	  end_master(fd, t1);
+	end_master(fd, ts);
+	lseek(fd, 0, SEEK_SET);
+
+	mkv_readtracktags(fd, 0xAA, &tags);
+	ck_assert(tags.has_replaygain_gain);
+	ck_assert_double_eq_tol(tags.replaygain_gain_db, -4.25, 0.000001);
+	ck_assert(tags.has_replaygain_peak);
+	ck_assert_double_eq_tol(tags.replaygain_peak, 0.75, 0.000001);
+
+#test readtracktags_ignores_other_tracks
+	struct track_tags tags = {0};
+
+	struct mstart ts = begin_master(fd, MKV_TAGS);
+	  struct mstart t1 = begin_master(fd, MKV_TAG);
+	    struct mstart tgt1 = begin_master(fd, MKV_TARGETS);
+	      wuint(fd, MKV_TAGTRACKUID, 0xBB, 4);
+	    end_master(fd, tgt1);
+	    struct mstart st1 = begin_master(fd, MKV_SIMPLETAG);
+	      wstring(fd, MKV_TAGNAME,   "REPLAYGAIN_GAIN");
+	      wstring(fd, MKV_TAGSTRING, "-4.25 dB");
+	    end_master(fd, st1);
+	  end_master(fd, t1);
+	end_master(fd, ts);
+	lseek(fd, 0, SEEK_SET);
+
+	mkv_readtracktags(fd, 0xAA, &tags);
+	ck_assert(!tags.has_replaygain_gain);
+
+#test readtracktags_accepts_gain_without_db_suffix
+	struct track_tags tags = {0};
+
+	struct mstart ts = begin_master(fd, MKV_TAGS);
+	  struct mstart t1 = begin_master(fd, MKV_TAG);
+	    struct mstart tgt1 = begin_master(fd, MKV_TARGETS);
+	      wuint(fd, MKV_TARGETTYPEVALUE, 30, 1);
+	    end_master(fd, tgt1);
+	    struct mstart st1 = begin_master(fd, MKV_SIMPLETAG);
+	      wstring(fd, MKV_TAGNAME,   "REPLAYGAIN_GAIN");
+	      wstring(fd, MKV_TAGSTRING, "3.00");
+	    end_master(fd, st1);
+	  end_master(fd, t1);
+	end_master(fd, ts);
+	lseek(fd, 0, SEEK_SET);
+
+	mkv_readtracktags(fd, 0xAA, &tags);
+	ck_assert(tags.has_replaygain_gain);
+	ck_assert_double_eq_tol(tags.replaygain_gain_db, 3.0, 0.000001);
+
+#test readtracktags_ignores_malformed_gain
+	struct track_tags tags = {0};
+
+	struct mstart ts = begin_master(fd, MKV_TAGS);
+	  struct mstart t1 = begin_master(fd, MKV_TAG);
+	    struct mstart tgt1 = begin_master(fd, MKV_TARGETS);
+	      wuint(fd, MKV_TAGTRACKUID, 0xAA, 4);
+	    end_master(fd, tgt1);
+	    struct mstart st1 = begin_master(fd, MKV_SIMPLETAG);
+	      wstring(fd, MKV_TAGNAME,   "REPLAYGAIN_GAIN");
+	      wstring(fd, MKV_TAGSTRING, "loud");
+	    end_master(fd, st1);
+	  end_master(fd, t1);
+	end_master(fd, ts);
+	lseek(fd, 0, SEEK_SET);
+
+	mkv_readtracktags(fd, 0xAA, &tags);
+	ck_assert(!tags.has_replaygain_gain);
+
 #main-pre
 	tcase_add_checked_fixture(tc1_1, fd_setup, fd_teardown);
+	tcase_add_checked_fixture(tc1_2, fd_setup, fd_teardown);

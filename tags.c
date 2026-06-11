@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -101,6 +102,8 @@ enum mkv_tag_name {
 	MKV_TAG_NAME_GENRE,
 	MKV_TAG_NAME_PART_NUMBER,
 	MKV_TAG_NAME_ORIGINAL,
+	MKV_TAG_NAME_REPLAYGAIN_GAIN,
+	MKV_TAG_NAME_REPLAYGAIN_PEAK,
 };
 
 static enum mkv_tag_name
@@ -118,6 +121,10 @@ classify_tag_name(const char *name)
 		return MKV_TAG_NAME_PART_NUMBER;
 	if (strcasecmp(name, "ORIGINAL") == 0)
 		return MKV_TAG_NAME_ORIGINAL;
+	if (strcasecmp(name, "REPLAYGAIN_GAIN") == 0)
+		return MKV_TAG_NAME_REPLAYGAIN_GAIN;
+	if (strcasecmp(name, "REPLAYGAIN_PEAK") == 0)
+		return MKV_TAG_NAME_REPLAYGAIN_PEAK;
 	return MKV_TAG_NAME_UNKNOWN;
 }
 
@@ -245,6 +252,119 @@ read_simpletag_body(int fd, off_t end, int scope, enum mkv_tag_name parent_name,
 	if (value && value_sz > 0)
 		add_tag_value(name, value, value_sz, scope, parent_name,
 		              ct, tt, at);
+	free(value);
+}
+
+static int
+parse_double_tag(const char *value, double *out)
+{
+	char *end;
+
+	errno = 0;
+	*out = strtod(value, &end);
+	if (end == value || errno == ERANGE)
+		return 0;
+	while (*end == ' ' || *end == '\t')
+		end++;
+	if ((end[0] == 'd' || end[0] == 'D') &&
+	    (end[1] == 'b' || end[1] == 'B'))
+		end += 2;
+	while (*end == ' ' || *end == '\t')
+		end++;
+	return *end == '\0';
+}
+
+static void
+add_track_tag_value(enum mkv_tag_name name, const char *value, size_t value_len,
+                    struct track_tags *out)
+{
+	double d;
+	char *copy;
+
+	if (!(copy = dup_str(value, value_len)))
+		return;
+
+	switch (name) {
+	case MKV_TAG_NAME_REPLAYGAIN_GAIN:
+		if (parse_double_tag(copy, &d)) {
+			out->has_replaygain_gain = 1;
+			out->replaygain_gain_db = d;
+		}
+		break;
+	case MKV_TAG_NAME_REPLAYGAIN_PEAK:
+		if (parse_double_tag(copy, &d) && d > 0.0) {
+			out->has_replaygain_peak = 1;
+			out->replaygain_peak = d;
+		}
+		break;
+	default:
+		break;
+	}
+	free(copy);
+}
+
+static void
+read_track_simpletag_body(int fd, off_t end, struct track_tags *out)
+{
+	char  *value = NULL;
+	size_t value_sz = 0;
+	char   name_buf[64] = {0};
+	enum mkv_tag_name name;
+
+	if (pos(fd) < end) {
+		off_t child_start = pos(fd), child_end;
+		uint32_t id;
+
+		if (ebml_element(fd, &id, &child_end) && id == MKV_TAGNAME) {
+			read_string_body_buf(fd, child_end, name_buf,
+			                     sizeof name_buf);
+			seek(fd, child_end);
+		} else {
+			seek(fd, child_start);
+		}
+	}
+	if (name_buf[0] == '\0') {
+		off_t body_start = pos(fd);
+		while (pos(fd) < end) {
+			off_t child_end;
+			uint32_t id;
+
+			if (!ebml_element(fd, &id, &child_end))
+				break;
+			if (id == MKV_TAGNAME) {
+				read_string_body_buf(fd, child_end, name_buf,
+				                     sizeof name_buf);
+				break;
+			}
+			seek(fd, child_end);
+		}
+		seek(fd, body_start);
+	}
+
+	if (name_buf[0] == '\0')
+		return;
+	name = classify_tag_name(name_buf);
+
+	while (pos(fd) < end) {
+		off_t child_end;
+		uint32_t id;
+
+		if (!ebml_element(fd, &id, &child_end))
+			break;
+		switch (id) {
+		case MKV_TAGNAME:
+			break;
+		case MKV_TAGSTRING:
+			read_string_body(fd, child_end, &value, &value_sz);
+			break;
+		default:
+			break;
+		}
+		seek(fd, child_end);
+	}
+
+	if (value && value_sz > 0)
+		add_track_tag_value(name, value, value_sz, out);
 	free(value);
 }
 
@@ -408,5 +528,44 @@ next_tag:
 	song_tags_free(&ct);
 	song_tags_free(&tt);
 	song_tags_free(&at);
+	return 1;
+}
+
+int
+mkv_readtracktags(int fd, uint64_t track_uid, struct track_tags *out)
+{
+	off_t tags_end;
+
+	*out = (struct track_tags){0};
+	if ((tags_end = ebml_descend(fd, MKV_TAGS)) == -1)
+		return 1;
+
+	while (pos(fd) < tags_end) {
+		off_t tag_end;
+		uint32_t id;
+
+		if (!ebml_element(fd, &id, &tag_end))
+			break;
+		if (id != MKV_TAG)
+			goto next_tag;
+
+		int scope = tag_scope(fd, 0, track_uid, 0);
+		if (scope != SCOPE_TRACK)
+			goto next_tag;
+
+		while (pos(fd) < tag_end) {
+			off_t child_end;
+
+			if (!ebml_element(fd, &id, &child_end))
+				break;
+			if (id == MKV_SIMPLETAG)
+				read_track_simpletag_body(fd, child_end, out);
+			seek(fd, child_end);
+		}
+
+next_tag:
+		seek(fd, tag_end);
+	}
+
 	return 1;
 }
