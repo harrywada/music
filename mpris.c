@@ -50,14 +50,14 @@ open_mkv(const char *path, struct mkv_seekinfo *si)
 {
 	int fd = open(path, O_RDONLY);
 	if (fd == -1) {
-		debug(errno, "mpris: %s", path);
+		warn(errno, "mpris: %s", path);
 		return -1;
 	}
 	*si = (struct mkv_seekinfo){0};
 	if (ebml_skip(fd, EBML_HEADER) == -1
 	||  ebml_descend(fd, MKV_SEGMENT) == -1
 	||  !mkv_readseekinfo(fd, si)) {
-		debug(0, "mpris: can't read Matroska headers in %s", path);
+		warn(0, "mpris: can't read Matroska headers in %s", path);
 		close(fd);
 		return -1;
 	}
@@ -70,7 +70,7 @@ cleanup_art(struct mpris *m)
 	if (!m->art_path)
 		return;
 	if (unlink(m->art_path) == -1 && errno != ENOENT)
-		debug(errno, "mpris: unlink %s", m->art_path);
+		warn(errno, "mpris: unlink %s", m->art_path);
 	free(m->art_path);
 	m->art_path = NULL;
 }
@@ -135,7 +135,7 @@ refresh_tags(struct mpris *m, const struct song *s)
 			}
 
 			if (mkdir(dir, 0700) == -1 && errno != EEXIST) {
-				debug(errno, "mpris: mkdir %s", dir);
+				warn(errno, "mpris: mkdir %s", dir);
 				goto done;
 			}
 
@@ -146,7 +146,7 @@ refresh_tags(struct mpris *m, const struct song *s)
 
 			int out = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 			if (out == -1) {
-				debug(errno, "mpris: open %s", path);
+				warn(errno, "mpris: open %s", path);
 				goto done;
 			}
 
@@ -168,7 +168,7 @@ refresh_tags(struct mpris *m, const struct song *s)
 			if (ok) {
 				m->art_path = strdup(path);
 				if (!m->art_path)
-					debug(errno, "mpris: strdup art_path");
+					warn(errno, "mpris: strdup art_path");
 			} else {
 				unlink(path);
 			}
@@ -621,14 +621,14 @@ mpris_open(struct state initial)
 {
 	struct mpris *m = calloc(1, sizeof *m);
 	if (!m) {
-		debug(errno, "mpris_open");
+		warn(errno, "mpris_open");
 		return nullptr;
 	}
 	m->state = initial;
 
 	int r = sd_bus_open_user(&m->bus);
 	if (r < 0) {
-		debug(-r, "sd_bus_open_user");
+		warn(-r, "sd_bus_open_user");
 		free(m);
 		return nullptr;
 	}
@@ -636,20 +636,20 @@ mpris_open(struct state initial)
 	r = sd_bus_add_object_vtable(m->bus, nullptr,
 	    MPRIS_OBJECT, MPRIS_ROOT, mpris_root_vtable, m);
 	if (r < 0) {
-		debug(-r, "sd_bus_add_object_vtable (root)");
+		warn(-r, "sd_bus_add_object_vtable (root)");
 		goto err;
 	}
 
 	r = sd_bus_add_object_vtable(m->bus, nullptr,
 	    MPRIS_OBJECT, MPRIS_PLAYER, mpris_player_vtable, m);
 	if (r < 0) {
-		debug(-r, "sd_bus_add_object_vtable (player)");
+		warn(-r, "sd_bus_add_object_vtable (player)");
 		goto err;
 	}
 
 	r = sd_bus_request_name(m->bus, MPRIS_NAME, 0);
 	if (r < 0) {
-		debug(-r, "sd_bus_request_name");
+		warn(-r, "sd_bus_request_name");
 		goto err;
 	}
 

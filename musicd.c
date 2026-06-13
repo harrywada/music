@@ -73,6 +73,8 @@ struct pulse {
 static struct pulse pulse;
 
 static bool effect(const struct state, const struct state);
+static const char *pulse_context_state_name(pa_context_state_t);
+static const char *pulse_error(const struct pulse *);
 
 static void
 pulse_signal(pa_threaded_mainloop *ml)
@@ -96,6 +98,9 @@ wait_context_ready(struct pulse *p)
 			return true;
 		case PA_CONTEXT_FAILED:
 		case PA_CONTEXT_TERMINATED:
+			warn(0, "Pulse context unavailable: context=%s error=%s",
+			    pulse_context_state_name(pa_context_get_state(p->ctx)),
+			    pulse_error(p));
 			return false;
 		default:
 			pa_threaded_mainloop_wait(p->ml);
@@ -108,19 +113,30 @@ static bool
 pulse_open(struct pulse *p)
 {
 	p->ml = pa_threaded_mainloop_new();
-	if (!p->ml)
+	if (!p->ml) {
+		warn(0, "pa_threaded_mainloop_new failed");
 		return false;
+	}
 
 	p->ctx = pa_context_new(pa_threaded_mainloop_get_api(p->ml), "musicd");
-	if (!p->ctx)
+	if (!p->ctx) {
+		warn(0, "pa_context_new failed");
 		return false;
+	}
 
 	pa_context_set_state_callback(p->ctx, context_state_cb, p->ml);
-	if (pa_threaded_mainloop_start(p->ml) < 0)
+	if (pa_threaded_mainloop_start(p->ml) < 0) {
+		warn(0, "pa_threaded_mainloop_start failed: context=%s "
+		    "error=%s", pulse_context_state_name(
+		    pa_context_get_state(p->ctx)), pulse_error(p));
 		return false;
+	}
 
 	pa_threaded_mainloop_lock(p->ml);
 	if (pa_context_connect(p->ctx, NULL, 0, NULL) < 0) {
+		warn(0, "pa_context_connect failed: context=%s error=%s",
+		    pulse_context_state_name(pa_context_get_state(p->ctx)),
+		    pulse_error(p));
 		pa_threaded_mainloop_unlock(p->ml);
 		return false;
 	}
@@ -180,7 +196,11 @@ pulse_set_sink_input_volume(uint32_t index, unsigned int channels,
 	    pulse.ctx, index, &cv, pulse_op_cb, &op);
 	if (!paop) {
 		pa_threaded_mainloop_unlock(pulse.ml);
-		debug(0, "pa_context_set_sink_input_volume");
+		warn(0, "pa_context_set_sink_input_volume failed: index=%u "
+		    "channels=%u volume=%u context=%s error=%s", index,
+		    channels, volume,
+		    pulse_context_state_name(pa_context_get_state(pulse.ctx)),
+		    pulse_error(&pulse));
 		return;
 	}
 
@@ -190,7 +210,42 @@ pulse_set_sink_input_volume(uint32_t index, unsigned int channels,
 	pa_threaded_mainloop_unlock(pulse.ml);
 
 	if (!op.ok)
-		debug(0, "Pulse sink-input volume update failed");
+		warn(0, "Pulse sink-input volume update failed: index=%u "
+		    "channels=%u volume=%u context=%s error=%s", index,
+		    channels, volume,
+		    pulse_context_state_name(pa_context_get_state(pulse.ctx)),
+		    pulse_error(&pulse));
+}
+
+static const char *
+pulse_context_state_name(pa_context_state_t state)
+{
+	switch (state) {
+	case PA_CONTEXT_UNCONNECTED:
+		return "unconnected";
+	case PA_CONTEXT_CONNECTING:
+		return "connecting";
+	case PA_CONTEXT_AUTHORIZING:
+		return "authorizing";
+	case PA_CONTEXT_SETTING_NAME:
+		return "setting-name";
+	case PA_CONTEXT_READY:
+		return "ready";
+	case PA_CONTEXT_FAILED:
+		return "failed";
+	case PA_CONTEXT_TERMINATED:
+		return "terminated";
+	default:
+		return "unknown";
+	}
+}
+
+static const char *
+pulse_error(const struct pulse *p)
+{
+	if (!p->ctx)
+		return "(none)";
+	return pa_strerror(pa_context_errno(p->ctx));
 }
 
 static void
@@ -232,7 +287,7 @@ handle_player_control(const struct state *state)
 	unsigned int channels;
 	uint32_t index;
 	if (sscanf(buf, "pulse-sink-input %u %u", &index, &channels) != 2) {
-		debug(0, "invalid player control message: %s", buf);
+		warn(0, "invalid player control message");
 		close_player_control();
 		return;
 	}
@@ -272,7 +327,7 @@ playlist_path(char out[PATH_MAX])
 	}
 
 	if (mkdir(dir, 0700) == -1 && errno != EEXIST) {
-		debug(errno, "playlist: mkdir %s", dir);
+		warn(errno, "playlist: mkdir %s", dir);
 		return false;
 	}
 
@@ -291,7 +346,7 @@ save_playlist(const struct state *s)
 
 	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 	if (fd == -1) {
-		debug(errno, "playlist: open %s", path);
+		warn(errno, "playlist: open %s", path);
 		return;
 	}
 
@@ -300,11 +355,11 @@ save_playlist(const struct state *s)
 		char uid_line[23]; /* "#" + ULONG_MAX digits + "\n\0" */
 		int n = snprintf(uid_line, sizeof uid_line, "#%lu\n", song->uid);
 		if (write(fd, song->path, strlen(song->path)) < 0) {
-			warn(errno, "write");
+			warn(errno, "playlist: write path %s", path);
 			break;
 		}
 		if (n > 0 && write(fd, uid_line, (size_t) n) < 0) {
-			warn(errno, "write");
+			warn(errno, "playlist: write chapter");
 			break;
 		}
 	}
@@ -322,7 +377,7 @@ load_playlist(struct state *s)
 	FILE *f = fopen(path, "r");
 	if (!f) {
 		if (errno != ENOENT)
-			debug(errno, "playlist: fopen %s", path);
+			warn(errno, "playlist: fopen %s", path);
 		return;
 	}
 
@@ -338,7 +393,7 @@ load_playlist(struct state *s)
 
 		struct song song;
 		if (!parse_song(line, &song)) {
-			debug(0, "playlist: skipping malformed line: %s", line);
+			warn(0, "playlist: skipping malformed line");
 			continue;
 		}
 
@@ -393,13 +448,13 @@ spawn_player(const struct song *song)
 {
 	int ctl[2];
 	if (pipe(ctl) == -1) {
-		debug(errno, "pipe");
+		warn(errno, "pipe");
 		return -1;
 	}
 
 	pid_t pid = fork();
 	if (pid == -1) {
-		debug(errno, "fork");
+		warn(errno, "fork");
 		close(ctl[0]);
 		close(ctl[1]);
 		return -1;
@@ -412,7 +467,7 @@ spawn_player(const struct song *song)
 		snprintf(ctl_str, sizeof ctl_str, "%d", ctl[1]);
 		setenv("MUSIC_CONTROL_FD", ctl_str, 1);
 		execl(PLAY_PATH, "play", song->path, uid_str, (char *) nullptr);
-		die(errno, "execl");
+		die(errno, "execl %s", PLAY_PATH);
 	}
 
 	close(ctl[1]);
@@ -434,7 +489,8 @@ effect(const struct state old, const struct state new)
 	if (player_pid != -1
 	    && (new.play == STOPPED || song_changed || new.mode == EXITING)) {
 		if (kill(player_pid, SIGHUP) == -1) {
-			debug(errno, "kill");
+			warn(errno, "kill SIGHUP: pid=%lld",
+			    (long long)player_pid);
 			return false;
 		}
 		/* Reaping happens asynchronously in the SIGCHLD handler. */
@@ -450,7 +506,8 @@ effect(const struct state old, const struct state new)
 		if (player_pid != -1) {
 			/* Was paused — resume without respawning. */
 			if (kill(player_pid, SIGUSR1) == -1) {
-				debug(errno, "kill");
+				warn(errno, "kill SIGUSR1: pid=%lld",
+				    (long long)player_pid);
 				return false;
 			}
 		} else {
@@ -461,7 +518,8 @@ effect(const struct state old, const struct state new)
 		}
 	} else if (new.play == PAUSED && old.play == PLAYING) {
 		if (player_pid != -1 && kill(player_pid, SIGUSR2) == -1) {
-			debug(errno, "kill");
+			warn(errno, "kill SIGUSR2: pid=%lld",
+			    (long long)player_pid);
 			return false;
 		}
 	}
@@ -482,13 +540,13 @@ add_client(struct fds *fds, int fd)
 		struct client *newclients = realloc(fds->clients,
 		                                    newcap * sizeof(struct client));
 		if (!newclients) {
-			debug(errno, "realloc");
+			warn(errno, "realloc clients: newcap=%u", newcap);
 			return false;
 		}
 		struct pollfd *newfds = realloc(fds->fds,
 		    (FD_END + newcap) * sizeof(struct pollfd));
 		if (!newfds) {
-			debug(errno, "realloc");
+			warn(errno, "realloc fds: newcap=%u", newcap);
 			return false;
 		}
 		fds->fds = newfds;
@@ -537,9 +595,6 @@ process_client_buf(struct state *state, struct client *client)
 	    client->len - (unsigned int)(start - client->buf)))) {
 		*nl = '\0';
 
-		if (*start)
-			debug(0, "%s", start);
-
 		const char *args[CMD_ARGV_MAX];
 		unsigned int nargs = 0;
 		char *tok = strtok(start, " ");
@@ -573,7 +628,7 @@ mksocket(const char *path)
 
 	sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (sockfd == -1) {
-		debug(errno, "socket");
+		warn(errno, "socket");
 		return -1;
 	}
 
@@ -582,13 +637,13 @@ mksocket(const char *path)
 	strncpy(addr.sun_path, path, sizeof addr.sun_path - 1);
 
 	if (bind(sockfd, (struct sockaddr *) &addr, sizeof addr) == -1) {
-		debug(errno, "bind");
+		warn(errno, "bind: path=%s", path);
 		close(sockfd);
 		return -1;
 	}
 
 	if (listen(sockfd, SOMAXCONN) == -1) {
-		debug(errno, "listen");
+		warn(errno, "listen");
 		close(sockfd);
 		return -1;
 	}
@@ -671,7 +726,7 @@ main(int argc, char *argv[])
 			while ((r = mpris_process(mpris, &state)) > 0)
 				;
 			if (r < 0)
-				debug(-r, "mpris_process");
+				warn(-r, "mpris_process");
 		}
 
 		if (mpris)
@@ -689,7 +744,7 @@ main(int argc, char *argv[])
 		if (fds.fds[FD_SOCK].revents & POLLIN) {
 			int cfd = accept(fds.fds[FD_SOCK].fd, nullptr, nullptr);
 			if (cfd == -1)
-				debug(errno, "accept");
+				warn(errno, "accept");
 			else if (!add_client(&fds, cfd))
 				close(cfd);
 		}
@@ -700,13 +755,14 @@ main(int argc, char *argv[])
 			if (read(fds.fds[FD_SIG].fd, &si, sizeof si) == (ssize_t) sizeof si
 			    && si.ssi_signo == SIGCHLD) {
 				int wstatus;
-				if (waitpid(player_pid, &wstatus, WNOHANG) == player_pid) {
+				pid_t pid = player_pid;
+				if (waitpid(pid, &wstatus, WNOHANG) == pid) {
 					player_pid = -1;
 					close_player_control();
 					clear_player_sink_input();
 					if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus) != 0)
-						debug(0, "player exited with status %d",
-						      WEXITSTATUS(wstatus));
+						warn(0, "player exited with status %d",
+						    WEXITSTATUS(wstatus));
 					/* Song finished naturally — advance per queue mode. */
 					if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0) {
 						switch (newstate.mode) {
@@ -764,7 +820,7 @@ main(int argc, char *argv[])
 			while ((r = mpris_process(mpris, &newstate)) > 0)
 				;
 			if (r < 0)
-				debug(-r, "mpris_process");
+				warn(-r, "mpris_process");
 		}
 #endif
 

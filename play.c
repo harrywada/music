@@ -84,6 +84,9 @@ static bool write_audio(struct state *, size_t);
 static void apply_replaygain(struct state *, void *, size_t);
 static void convert_s8_to_u8(void *, size_t);
 static void report_sink_input(const struct state *);
+static const char *pulse_context_state_name(pa_context_state_t);
+static const char *pulse_stream_state_name(pa_stream_state_t);
+static const char *pulse_error(const struct pulse *);
 
 void cleanup_pulse(struct pulse *);
 
@@ -97,7 +100,14 @@ pulse_quit(struct state *s, int ret)
 static void
 pulse_fail(struct state *s, const char *what)
 {
-	debug(0, "%s", what);
+	warn(0, "%s: context=%s stream=%s error=%s", what,
+	    s->pulse.ctx
+	        ? pulse_context_state_name(pa_context_get_state(s->pulse.ctx))
+	        : "(none)",
+	    s->pulse.stream
+	        ? pulse_stream_state_name(pa_stream_get_state(s->pulse.stream))
+	        : "(none)",
+	    pulse_error(&s->pulse));
 	pulse_quit(s, EXIT_FAILURE);
 }
 
@@ -118,7 +128,11 @@ pulse_cork_cb(pa_stream *stream, int success, void *userdata)
 	(void)stream;
 	(void)userdata;
 	if (!success)
-		debug(0, "pa_stream_cork failed");
+		warn(0, "pa_stream_cork failed: stream=%s error=%s",
+		    stream ? pulse_stream_state_name(pa_stream_get_state(stream))
+		           : "(none)",
+		    stream ? pa_strerror(pa_context_errno(
+		        pa_stream_get_context(stream))) : "(none)");
 }
 
 static void
@@ -132,7 +146,10 @@ pulse_cork(struct state *s, bool cork)
 	if (op)
 		pa_operation_unref(op);
 	else
-		debug(0, "pa_stream_cork: no Pulse operation");
+		warn(0, "pa_stream_cork failed: cork=%d stream=%s error=%s",
+		    cork,
+		    pulse_stream_state_name(pa_stream_get_state(s->pulse.stream)),
+		    pulse_error(&s->pulse));
 }
 
 static void
@@ -165,7 +182,11 @@ stream_underflow_cb(pa_stream *stream, void *userdata)
 {
 	(void)userdata;
 	int64_t index = pa_stream_get_underflow_index(stream);
-	debug(0, "Pulse stream underflow at index %lld", (long long)index);
+	size_t writable = pa_stream_writable_size(stream);
+	warn(0, "Pulse stream underflow: index=%lld writable=%lld "
+	    "stream=%s error=%s", (long long)index, (long long)writable,
+	    pulse_stream_state_name(pa_stream_get_state(stream)),
+	    pa_strerror(pa_context_errno(pa_stream_get_context(stream))));
 }
 
 static void
@@ -221,8 +242,13 @@ pulse_connect_stream(struct state *s)
 	pulse->stream = pa_stream_new_with_proplist(
 	    pulse->ctx, "music", &pulse->spec, &map, props);
 	pa_proplist_free(props);
-	if (!pulse->stream)
+	if (!pulse->stream) {
+		warn(0, "pa_stream_new_with_proplist failed: context=%s "
+		    "error=%s",
+		    pulse_context_state_name(pa_context_get_state(pulse->ctx)),
+		    pulse_error(pulse));
 		return false;
+	}
 
 	pa_stream_set_state_callback(pulse->stream, stream_state_cb, s);
 	pa_stream_set_write_callback(pulse->stream, stream_write_cb, s);
@@ -239,8 +265,16 @@ pulse_connect_stream(struct state *s)
 	};
 	pa_stream_flags_t flags = PA_STREAM_ADJUST_LATENCY
 	    | PA_STREAM_AUTO_TIMING_UPDATE;
-	return pa_stream_connect_playback(pulse->stream, NULL, &attr, flags,
-	    NULL, NULL) >= 0;
+	if (pa_stream_connect_playback(pulse->stream, NULL, &attr, flags,
+	    NULL, NULL) < 0) {
+		warn(0, "pa_stream_connect_playback failed: context=%s "
+		    "stream=%s error=%s",
+		    pulse_context_state_name(pa_context_get_state(pulse->ctx)),
+		    pulse_stream_state_name(pa_stream_get_state(pulse->stream)),
+		    pulse_error(pulse));
+		return false;
+	}
+	return true;
 }
 
 static void
@@ -293,21 +327,29 @@ pulse_open(struct state *s)
 		return false;
 
 	pulse->ml = pa_mainloop_new();
-	if (!pulse->ml)
+	if (!pulse->ml) {
+		warn(0, "pa_mainloop_new failed");
 		return false;
+	}
 	pa_mainloop_api *api = pa_mainloop_get_api(pulse->ml);
 
-	if (pa_signal_init(api) < 0)
+	if (pa_signal_init(api) < 0) {
+		warn(0, "pa_signal_init failed");
 		return false;
+	}
 	pulse->signals = true;
 	if (!pa_signal_new(SIGHUP, signal_cb, s)
 	    || !pa_signal_new(SIGUSR1, signal_cb, s)
-	    || !pa_signal_new(SIGUSR2, signal_cb, s))
+	    || !pa_signal_new(SIGUSR2, signal_cb, s)) {
+		warn(0, "pa_signal_new failed");
 		return false;
+	}
 
 	pa_proplist *props = pa_proplist_new();
-	if (!props)
+	if (!props) {
+		warn(0, "pa_proplist_new failed");
 		return false;
+	}
 	pa_proplist_sets(props, PA_PROP_APPLICATION_NAME, "music");
 	pa_proplist_sets(props, PA_PROP_APPLICATION_ID, "music");
 	pa_proplist_sets(props, PA_PROP_MEDIA_ROLE, "music");
@@ -315,11 +357,19 @@ pulse_open(struct state *s)
 	pulse->ctx = pa_context_new_with_proplist(
 	    api, "music", props);
 	pa_proplist_free(props);
-	if (!pulse->ctx)
+	if (!pulse->ctx) {
+		warn(0, "pa_context_new_with_proplist failed");
 		return false;
+	}
 
 	pa_context_set_state_callback(pulse->ctx, context_state_cb, s);
-	return pa_context_connect(pulse->ctx, NULL, 0, NULL) >= 0;
+	if (pa_context_connect(pulse->ctx, NULL, 0, NULL) < 0) {
+		warn(0, "pa_context_connect failed: context=%s error=%s",
+		    pulse_context_state_name(pa_context_get_state(pulse->ctx)),
+		    pulse_error(pulse));
+		return false;
+	}
+	return true;
 }
 
 void
@@ -352,7 +402,10 @@ write_audio(struct state *s, size_t requested)
 
 	size_t writable = pa_stream_writable_size(s->pulse.stream);
 	if (writable == (size_t)-1) {
-		debug(0, "pa_stream_writable_size failed");
+		warn(0, "pa_stream_writable_size failed: requested=%zu "
+		    "stream=%s error=%s", requested,
+		    pulse_stream_state_name(pa_stream_get_state(s->pulse.stream)),
+		    pulse_error(&s->pulse));
 		return false;
 	}
 	writable = MIN(writable, requested);
@@ -368,7 +421,8 @@ write_audio(struct state *s, size_t requested)
 		.n = 0,
 	};
 	if (!buf.addr) {
-		debug(errno, "malloc");
+		warn(errno, "malloc: writable=%zu requested=%zu", writable,
+		    requested);
 		return false;
 	}
 
@@ -376,7 +430,8 @@ write_audio(struct state *s, size_t requested)
 		if (s->play.pending) {
 			const size_t n = MIN(rem(buf), s->play.pending);
 			if (read(s->src, head(buf), n) != (ssize_t) n) {
-				debug(errno, "read");
+				warn(errno, "read pending audio: n=%zu "
+				    "pending=%zu", n, s->play.pending);
 				break;
 			}
 			apply_replaygain(s, head(buf), n);
@@ -402,7 +457,8 @@ write_audio(struct state *s, size_t requested)
 
 		const size_t n = MIN(rem(buf), (size_t)sz);
 		if (read(s->src, head(buf), n) != (ssize_t)n) {
-			debug(errno, "read");
+			warn(errno, "read audio frame: n=%zu frame=%zd", n,
+			    sz);
 			break;
 		}
 		apply_replaygain(s, head(buf), n);
@@ -417,7 +473,12 @@ write_audio(struct state *s, size_t requested)
 		    NULL, 0, PA_SEEK_RELATIVE);
 		if (err < 0) {
 			free(buf.addr);
-			debug(0, "pa_stream_write failed");
+			warn(0, "pa_stream_write failed: bytes=%zu "
+			    "requested=%zu writable=%zu stream=%s error=%s",
+			    buf.n, requested, writable,
+			    pulse_stream_state_name(
+			    pa_stream_get_state(s->pulse.stream)),
+			    pulse_error(&s->pulse));
 			return false;
 		}
 	}
@@ -428,7 +489,10 @@ write_audio(struct state *s, size_t requested)
 		s->pulse.drain = pa_stream_drain(s->pulse.stream,
 		    pulse_drain_cb, s);
 		if (!s->pulse.drain) {
-			debug(0, "pa_stream_drain: no Pulse operation");
+			warn(0, "pa_stream_drain failed: stream=%s error=%s",
+			    pulse_stream_state_name(
+			    pa_stream_get_state(s->pulse.stream)),
+			    pulse_error(&s->pulse));
 			return false;
 		}
 	}
@@ -477,6 +541,56 @@ report_sink_input(const struct state *s)
 
 	dprintf((int)fd, "pulse-sink-input %u %u\n", index, s->cfg.chans);
 	close((int)fd);
+}
+
+static const char *
+pulse_context_state_name(pa_context_state_t state)
+{
+	switch (state) {
+	case PA_CONTEXT_UNCONNECTED:
+		return "unconnected";
+	case PA_CONTEXT_CONNECTING:
+		return "connecting";
+	case PA_CONTEXT_AUTHORIZING:
+		return "authorizing";
+	case PA_CONTEXT_SETTING_NAME:
+		return "setting-name";
+	case PA_CONTEXT_READY:
+		return "ready";
+	case PA_CONTEXT_FAILED:
+		return "failed";
+	case PA_CONTEXT_TERMINATED:
+		return "terminated";
+	default:
+		return "unknown";
+	}
+}
+
+static const char *
+pulse_stream_state_name(pa_stream_state_t state)
+{
+	switch (state) {
+	case PA_STREAM_UNCONNECTED:
+		return "unconnected";
+	case PA_STREAM_CREATING:
+		return "creating";
+	case PA_STREAM_READY:
+		return "ready";
+	case PA_STREAM_FAILED:
+		return "failed";
+	case PA_STREAM_TERMINATED:
+		return "terminated";
+	default:
+		return "unknown";
+	}
+}
+
+static const char *
+pulse_error(const struct pulse *pulse)
+{
+	if (!pulse->ctx)
+		return "(none)";
+	return pa_strerror(pa_context_errno(pulse->ctx));
 }
 
 static void *
@@ -601,7 +715,7 @@ main(int argc, char *argv[])
 		ret = EXIT_FAILURE;
 
 	if (close(state.src) == -1)
-		debug(errno, "Can't close %s", path);
+		warn(errno, "Can't close %s", path);
 	cleanup_pulse(&state.pulse);
 
 	return ret;

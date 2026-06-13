@@ -33,7 +33,7 @@ bool parse_song(const char *line, struct song *s)
 
 	s->uid = strtoul(end, &uid_end, 10);
 	if (s->uid == ULONG_MAX) {
-		debug(errno, "strtoul");
+		warn(errno, "song: invalid chapter id");
 		goto err;
 	} else if (*uid_end != '\0') {
 		goto err;

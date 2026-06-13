@@ -9,14 +9,14 @@ static struct queue
 requeue(struct queue oldq, unsigned int size)
 {
 	if (size < oldq.size) {
-		debug(0, "Bad queue size (%d < %d)", size, oldq.size);
+		warn(0, "Bad queue size: %u < %u", size, oldq.size);
 		return oldq;
 	}
 
 	struct queue newq = { .head = 0, .tail = 0, .size = size };
 	newq.data = malloc(size * sizeof(struct song));
 	if (!newq.data) {
-		debug(errno, "malloc");
+		warn(errno, "queue: malloc size=%u", size);
 		return oldq;
 	}
 

@@ -285,7 +285,7 @@ cmd_status(struct state s, int fd)
 	                 ps[s.play], ms[s.mode], s.volume / 100,
 	                 s.volume % 100);
 	if (n > 0 && write(fd, buf, (size_t) n) < 0)
-		warn(errno, "write");
+		warn(errno, "status: write");
 }
 
 void
@@ -297,11 +297,11 @@ cmd_list(struct state s, int fd)
 		int n = snprintf(uid_line, sizeof uid_line,
 		                 "#%lu\n", song->uid);
 		if (write(fd, song->path, strlen(song->path)) < 0) {
-			warn(errno, "write");
+			warn(errno, "list: write path");
 			break;
 		}
 		if (n > 0 && write(fd, uid_line, (size_t) n) < 0) {
-			warn(errno, "write");
+			warn(errno, "list: write chapter");
 			break;
 		}
 	}
