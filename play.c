@@ -30,11 +30,6 @@
 #include "replaygain.h"
 #include "tags.h"
 
-enum {
-	PULSE_LATENCY_US = 50000,
-	PULSE_MINREQ_US  = 10000,
-};
-
 /* Convenient wrapper for writing decoded audio into a byte buffer. */
 struct buf {
 	size_t n, size;
@@ -256,11 +251,9 @@ pulse_connect_stream(struct state *s)
 
 	pa_buffer_attr attr = {
 		.maxlength = (uint32_t)-1,
-		.tlength = (uint32_t)pa_usec_to_bytes(PULSE_LATENCY_US,
-		    &pulse->spec),
+		.tlength = (uint32_t)-1,
 		.prebuf = (uint32_t)-1,
-		.minreq = (uint32_t)pa_usec_to_bytes(PULSE_MINREQ_US,
-		    &pulse->spec),
+		.minreq = (uint32_t)-1,
 		.fragsize = (uint32_t)-1,
 	};
 	pa_stream_flags_t flags = PA_STREAM_ADJUST_LATENCY
@@ -408,7 +401,6 @@ write_audio(struct state *s, size_t requested)
 		    pulse_error(&s->pulse));
 		return false;
 	}
-	writable = MIN(writable, requested);
 	if (writable == 0)
 		return true;
 	writable -= writable % pa_frame_size(&s->pulse.spec);
