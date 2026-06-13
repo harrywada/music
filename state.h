@@ -18,6 +18,7 @@ struct state {
 	enum mode mode;
 	struct queue queue;
 	unsigned int cur;
+	unsigned int volume;
 	enum playstate play;
 };
 

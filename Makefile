@@ -9,9 +9,11 @@ PKG_CONFIG   ?= pkg-config
 
 CFLAGS += -std=c23 -D_POSIX_SOURCE -D_POSIX_C_SOURCE=200809L -DPLAY_PATH=\"$(PLAY_PATH)\" \
           -Wall -Wextra -Werror -Wno-empty-body \
-          -isystem /usr/include/alsa/ \
           -DTRACKS_MAX="$(TRACKS_MAX)" \
           -DVINT_OCTET_MAX="$(VINT_OCTET_MAX)"
+
+PULSE_CFLAGS = $(shell $(PKG_CONFIG) --cflags libpulse)
+PULSE_LFLAGS = $(shell $(PKG_CONFIG) --libs libpulse)
 
 ifeq ($(MPRIS),1)
 MPRIS_OBJ    = mpris.o tags.o
@@ -22,11 +24,12 @@ endif
 .PHONY: all
 all: play musicd sq sf sc sp so
 
-play: LDLIBS += -lasound -lm
+play: CFLAGS += $(PULSE_CFLAGS)
+play: LDLIBS += $(PULSE_LFLAGS) -lm
 play: play.c ebml.o matroska.o matroska_utils.o tags.o replaygain.o utils.o log_syslog.o
 musicd: musicd.c cmds.o state.o queue.o song.o utils.o log_syslog.o $(MPRIS_OBJ) matroska.o matroska_utils.o ebml.o
-musicd: CFLAGS  += $(MPRIS_CFLAGS)
-musicd: LDLIBS += $(MPRIS_LFLAGS)
+musicd: CFLAGS  += $(MPRIS_CFLAGS) $(PULSE_CFLAGS)
+musicd: LDLIBS += $(MPRIS_LFLAGS) $(PULSE_LFLAGS)
 sq: sq.c ebml.o matroska.o matroska_utils.o song.o utils.o log_stderr.o
 sf: sf.c filter.o tags.o ebml.o matroska.o matroska_utils.o song.o utils.o log_stderr.o
 sc: sc.c utils.o log_stderr.o

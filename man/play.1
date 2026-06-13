@@ -3,7 +3,7 @@
 .Os
 .Sh NAME
 .Nm play
-.Nd play one Matroska chapter through ALSA
+.Nd play one Matroska chapter through PulseAudio
 .Sh SYNOPSIS
 .Nm
 .Ar path
@@ -16,7 +16,7 @@ It opens the Matroska file at
 .Ar path ,
 locates
 .Ar chapter-id ,
-and writes the chapter audio to the default ALSA playback device.
+and writes the chapter audio to the default PulseAudio sink.
 .Pp
 .Nm
 responds to signals from

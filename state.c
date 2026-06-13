@@ -8,6 +8,7 @@ mkstate(struct state *s)
 		return false;
 	s->mode = CONSUME;
 	s->cur = s->queue.head;
+	s->volume = 50;
 	s->play = STOPPED;
 
 	return true;

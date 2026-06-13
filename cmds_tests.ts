@@ -19,6 +19,12 @@ const struct {
 	  .argv = (const char **) (const char *[]) { "exit", nullptr } },
 };
 
+#test mkstate_defaults_volume_to_50
+	struct state s;
+	ck_assert(mkstate(&s));
+	ck_assert_uint_eq(s.volume, 50);
+	cleanup_state(&s);
+
 #test-loop(0, 3) cmd_exit_works
 	auto s1 = cmd_exit_works_cases[_i].s1;
 	auto s2 = cmd_exit_works_cases[_i].s2;
@@ -276,6 +282,65 @@ const struct {
 	auto r = cmd_toggle(s, 0, nullptr);
 	ck_assert_int_eq(r.play, cmd_toggle_cases[_i].out);
 
+#tcase volume
+
+const struct {
+	const char *arg;
+	unsigned int volume;
+} cmd_volume_set_cases[] = {
+	{ "0",     0   },
+	{ "0.5",   50  },
+	{ "1",     100 },
+	{ "1.0",   100 },
+	{ "0.999", 99  },
+};
+
+const char *cmd_volume_invalid_cases[] = {
+	"",
+	"foo",
+	"--0.10",
+	"1.01",
+	"0.5 extra",
+};
+
+#test-loop(0, 5) cmd_volume_sets_absolute
+	struct state s = { .volume = 25 };
+	const char *args[] = { cmd_volume_set_cases[_i].arg, nullptr };
+	s = cmd_volume(s, 1, args);
+	ck_assert_uint_eq(s.volume, cmd_volume_set_cases[_i].volume);
+
+#test cmd_volume_changes_relative
+	struct state s = { .volume = 50 };
+	const char *up[] = { "+0.10", nullptr };
+	const char *down[] = { "-0.10", nullptr };
+	s = cmd_volume(s, 1, up);
+	ck_assert_uint_eq(s.volume, 60);
+	s = cmd_volume(s, 1, down);
+	ck_assert_uint_eq(s.volume, 50);
+
+#test cmd_volume_clamps_relative
+	struct state s = { .volume = 95 };
+	const char *up[] = { "+0.10", nullptr };
+	const char *down[] = { "-1", nullptr };
+	s = cmd_volume(s, 1, up);
+	ck_assert_uint_eq(s.volume, 100);
+	s = cmd_volume(s, 1, down);
+	ck_assert_uint_eq(s.volume, 0);
+
+#test-loop(0, 5) cmd_volume_ignores_invalid
+	struct state s = { .volume = 42 };
+	const char *args[] = { cmd_volume_invalid_cases[_i], nullptr };
+	s = cmd_volume(s, 1, args);
+	ck_assert_uint_eq(s.volume, 42);
+
+#test cmd_volume_ignores_wrong_argc
+	struct state s = { .volume = 42 };
+	const char *args[] = { "0.5", "extra", nullptr };
+	s = cmd_volume(s, 0, nullptr);
+	ck_assert_uint_eq(s.volume, 42);
+	s = cmd_volume(s, 2, args);
+	ck_assert_uint_eq(s.volume, 42);
+
 #tcase cmd_list
 
 #test cmd_list_empty_outputs_nothing
@@ -365,3 +430,17 @@ const struct {
 	ck_assert(nr > 0);
 	ck_assert_str_eq(buf, "/b.mka#2\n/a.mka#1\n");
 	cleanup_state(&s);
+
+#tcase status
+
+#test cmd_status_includes_volume
+	struct state s = { .mode = CONSUME, .play = STOPPED, .volume = 5 };
+	int pfd[2];
+	ck_assert_int_eq(pipe(pfd), 0);
+	cmd_status(s, pfd[1]);
+	close(pfd[1]);
+	char buf[128] = { 0 };
+	ssize_t nr = read(pfd[0], buf, sizeof buf - 1);
+	close(pfd[0]);
+	ck_assert(nr > 0);
+	ck_assert_str_eq(buf, "state: stopped\nmode: consume\nvolume: 0.05\n");

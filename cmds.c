@@ -1,5 +1,6 @@
 #include <errno.h>  /* errno(3p). */
 #include <stdio.h>  /* snprintf(3). */
+#include <ctype.h>  /* isdigit(3). */
 #include <stdlib.h> /* strtol(3). */
 #include <string.h> /* strcmp(3), strlen(3). */
 #include <unistd.h> /* write(2). */
@@ -27,6 +28,7 @@ cmd(struct state s, unsigned int argc, const char *args[])
 	DO(skip);
 	DO(stop);
 	DO(toggle);
+	DO(volume);
 #undef DO
 
 	warn(0, "unknown command: %s", args[0]);
@@ -202,6 +204,68 @@ cmd_toggle(                struct state s,
 	return s;
 }
 
+static bool
+parse_volume(const char *arg, unsigned int *out)
+{
+	unsigned int whole, frac = 0, ndigits = 0;
+	const char *p = arg;
+
+	if (*p != '0' && *p != '1')
+		return false;
+	whole = (unsigned int)(*p++ - '0');
+
+	if (*p == '.') {
+		p++;
+		while (isdigit((unsigned char)*p)) {
+			if (ndigits < 2)
+				frac = frac * 10 + (unsigned int)(*p - '0');
+			ndigits++;
+			p++;
+		}
+		if (ndigits == 1)
+			frac *= 10;
+	} else if (*p != '\0') {
+		return false;
+	}
+
+	if (*p != '\0' || (ndigits == 0 && arg[1] == '.'))
+		return false;
+	if (whole == 1 && frac != 0)
+		return false;
+
+	*out = whole == 1 ? 100 : frac;
+	return true;
+}
+
+struct state
+cmd_volume(struct state s, unsigned int argc, const char *args[])
+{
+	if (argc != 1) {
+		warn(0, "volume: expected 1 argument, got %u", argc);
+		return s;
+	}
+
+	const char *arg = args[0];
+	bool relative = arg[0] == '+' || arg[0] == '-';
+	unsigned int parsed;
+	if (!parse_volume(relative ? arg + 1 : arg, &parsed)) {
+		warn(0, "volume: invalid volume: %s", arg);
+		return s;
+	}
+
+	if (relative) {
+		if (arg[0] == '+') {
+			s.volume = s.volume + parsed > 100 ? 100 : s.volume + parsed;
+		} else {
+			s.volume = parsed > s.volume ? 0 : s.volume - parsed;
+		}
+	} else {
+		s.volume = parsed;
+	}
+
+	return s;
+}
+
 void
 cmd_status(struct state s, int fd)
 {
@@ -216,8 +280,10 @@ cmd_status(struct state s, int fd)
 		[LOOP]    = "loop",
 	};
 	char buf[64];
-	int n = snprintf(buf, sizeof buf, "state: %s\nmode: %s\n",
-	                 ps[s.play], ms[s.mode]);
+	int n = snprintf(buf, sizeof buf,
+	                 "state: %s\nmode: %s\nvolume: %u.%02u\n",
+	                 ps[s.play], ms[s.mode], s.volume / 100,
+	                 s.volume % 100);
 	if (n > 0 && write(fd, buf, (size_t) n) < 0)
 		warn(errno, "write");
 }

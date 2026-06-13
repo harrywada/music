@@ -300,6 +300,37 @@ prop_rate_one(sd_bus *, const char *, const char *,
 }
 
 static int
+prop_volume(sd_bus *, const char *, const char *,
+            const char *, sd_bus_message *reply,
+            void *userdata, sd_bus_error *)
+{
+	struct mpris *m = userdata;
+	return sd_bus_message_append(reply, "d", m->state.volume / 100.0);
+}
+
+static int
+set_volume(sd_bus *, const char *, const char *,
+           const char *, sd_bus_message *value,
+           void *userdata, sd_bus_error *)
+{
+	struct mpris *m = userdata;
+	if (!m->dispatch)
+		return 0;
+
+	double v;
+	int r = sd_bus_message_read(value, "d", &v);
+	if (r < 0)
+		return r;
+	if (!(v >= 0.0))
+		v = 0.0;
+	if (v > 1.0)
+		v = 1.0;
+
+	m->dispatch->volume = (unsigned int)(v * 100.0 + 0.000000001);
+	return 0;
+}
+
+static int
 prop_position_zero(sd_bus *, const char *, const char *,
                    const char *, sd_bus_message *reply,
                    void *, sd_bus_error *)
@@ -554,8 +585,8 @@ static const sd_bus_vtable mpris_player_vtable[] = {
 	SD_BUS_PROPERTY("Shuffle",     "b", prop_bool_false,  0,
 	    SD_BUS_VTABLE_PROPERTY_CONST),
 	SD_BUS_PROPERTY("Metadata",    "a{sv}", prop_metadata, 0, 0),
-	SD_BUS_PROPERTY("Volume",      "d", prop_rate_one,    0,
-	    SD_BUS_VTABLE_PROPERTY_CONST),
+	SD_BUS_WRITABLE_PROPERTY("Volume", "d",
+	    prop_volume, set_volume, 0, 0),
 	SD_BUS_PROPERTY("Position",    "x", prop_position_zero, 0, 0),
 	SD_BUS_PROPERTY("MinimumRate", "d", prop_rate_one,    0,
 	    SD_BUS_VTABLE_PROPERTY_CONST),
@@ -682,6 +713,8 @@ mpris_notify(struct mpris *m, struct state old, struct state new)
 		props[np++] = "PlaybackStatus";
 	if (old.mode != new.mode)
 		props[np++] = "LoopStatus";
+	if (old.volume != new.volume)
+		props[np++] = "Volume";
 	if (song_changed) {
 		props[np++] = "Metadata";
 		props[np++] = "CanGoNext";

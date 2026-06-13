@@ -31,28 +31,27 @@ int
 main(int argc, char *argv[])
 {
 	const char *sockpath = NULL;
-	const char *command  = NULL;
+	char command[256] = { 0 };
+	size_t command_len = 0;
 
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
 			sockpath = argv[++i];
-		} else if (!command) {
-			command = argv[i];
+		} else if (command_len == 0) {
+			int n = snprintf(command, sizeof command, "%s", argv[i]);
+			if (n < 0 || n >= (int) sizeof command)
+				goto usage;
+			command_len = (size_t)n;
 		} else {
-			fprintf(stderr,
-			    "Usage: sc -s <socket-path> <command>\n"
-			    "Commands: exit list loop consume pause play skip"
-			    " stop toggle status clear\n");
-			return 1;
+			int n = snprintf(command + command_len,
+			    sizeof command - command_len, " %s", argv[i]);
+			if (n < 0 || n >= (int)(sizeof command - command_len))
+				goto usage;
+			command_len += (size_t)n;
 		}
 	}
-	if (!sockpath || !command) {
-		fprintf(stderr,
-		    "Usage: sc -s <socket-path> <command>\n"
-		    "Commands: exit list loop consume pause play skip"
-		    " stop toggle status\n");
-		return 1;
-	}
+	if (!sockpath || command_len == 0)
+		goto usage;
 
 	int sock = connect_socket(sockpath);
 	if (sock == -1) return 1;
@@ -72,4 +71,11 @@ main(int argc, char *argv[])
 
 	close(sock);
 	return 0;
+
+usage:
+	fprintf(stderr,
+	    "Usage: sc -s <socket-path> <command> [args...]\n"
+	    "Commands: exit list loop consume pause play skip stop toggle"
+	    " status clear volume\n");
+	return 1;
 }

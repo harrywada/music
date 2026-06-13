@@ -14,6 +14,11 @@
 #include <sys/stat.h>    /* mkdir(2). */
 #include <unistd.h>      /* close(2p), read(2). */
 
+#include <pulse/pulseaudio.h>
+
+#undef MAX
+#undef MIN
+
 #include "cmds.h"
 #ifdef MPRIS
 #include "mpris.h"
@@ -32,6 +37,7 @@
 enum fdtype {
 	FD_SOCK = 0,
 	FD_SIG,
+	FD_PLAYER,
 #ifdef MPRIS
 	FD_MPRIS,
 #endif
@@ -54,8 +60,190 @@ struct fds {
 };
 
 static pid_t player_pid;
+static int player_ctl_fd = -1;
+static bool player_has_sink_input;
+static uint32_t player_sink_input;
+static unsigned int player_sink_input_channels;
+
+struct pulse {
+	pa_threaded_mainloop *ml;
+	pa_context *ctx;
+};
+
+static struct pulse pulse;
 
 static bool effect(const struct state, const struct state);
+
+static void
+pulse_signal(pa_threaded_mainloop *ml)
+{
+	pa_threaded_mainloop_signal(ml, 0);
+}
+
+static void
+context_state_cb(pa_context *ctx, void *userdata)
+{
+	(void)ctx;
+	pulse_signal(userdata);
+}
+
+static bool
+wait_context_ready(struct pulse *p)
+{
+	for (;;) {
+		switch (pa_context_get_state(p->ctx)) {
+		case PA_CONTEXT_READY:
+			return true;
+		case PA_CONTEXT_FAILED:
+		case PA_CONTEXT_TERMINATED:
+			return false;
+		default:
+			pa_threaded_mainloop_wait(p->ml);
+			break;
+		}
+	}
+}
+
+static bool
+pulse_open(struct pulse *p)
+{
+	p->ml = pa_threaded_mainloop_new();
+	if (!p->ml)
+		return false;
+
+	p->ctx = pa_context_new(pa_threaded_mainloop_get_api(p->ml), "musicd");
+	if (!p->ctx)
+		return false;
+
+	pa_context_set_state_callback(p->ctx, context_state_cb, p->ml);
+	if (pa_threaded_mainloop_start(p->ml) < 0)
+		return false;
+
+	pa_threaded_mainloop_lock(p->ml);
+	if (pa_context_connect(p->ctx, NULL, 0, NULL) < 0) {
+		pa_threaded_mainloop_unlock(p->ml);
+		return false;
+	}
+	bool ok = wait_context_ready(p);
+	pa_threaded_mainloop_unlock(p->ml);
+	return ok;
+}
+
+static void
+pulse_close(struct pulse *p)
+{
+	if (p->ml)
+		pa_threaded_mainloop_lock(p->ml);
+	if (p->ctx) {
+		pa_context_disconnect(p->ctx);
+		pa_context_unref(p->ctx);
+	}
+	if (p->ml) {
+		pa_threaded_mainloop_unlock(p->ml);
+		pa_threaded_mainloop_stop(p->ml);
+		pa_threaded_mainloop_free(p->ml);
+	}
+}
+
+struct pulse_op {
+	pa_threaded_mainloop *ml;
+	bool done;
+	bool ok;
+};
+
+static void
+pulse_op_cb(pa_context *ctx, int success, void *userdata)
+{
+	(void)ctx;
+	struct pulse_op *op = userdata;
+	op->done = true;
+	op->ok = success;
+	pulse_signal(op->ml);
+}
+
+static void
+pulse_set_sink_input_volume(uint32_t index, unsigned int channels,
+                            unsigned int volume)
+{
+	if (volume > 100)
+		volume = 100;
+	if (channels == 0 || channels > PA_CHANNELS_MAX)
+		channels = 2;
+
+	pa_volume_t v = (pa_volume_t)((uint64_t)volume * PA_VOLUME_NORM / 100);
+	pa_cvolume cv;
+	pa_cvolume_set(&cv, channels, v);
+
+	struct pulse_op op = { .ml = pulse.ml };
+	pa_threaded_mainloop_lock(pulse.ml);
+	pa_operation *paop = pa_context_set_sink_input_volume(
+	    pulse.ctx, index, &cv, pulse_op_cb, &op);
+	if (!paop) {
+		pa_threaded_mainloop_unlock(pulse.ml);
+		debug(0, "pa_context_set_sink_input_volume");
+		return;
+	}
+
+	while (!op.done)
+		pa_threaded_mainloop_wait(pulse.ml);
+	pa_operation_unref(paop);
+	pa_threaded_mainloop_unlock(pulse.ml);
+
+	if (!op.ok)
+		debug(0, "Pulse sink-input volume update failed");
+}
+
+static void
+set_player_volume(unsigned int volume)
+{
+	if (player_has_sink_input)
+		pulse_set_sink_input_volume(player_sink_input,
+		    player_sink_input_channels, volume);
+}
+
+static void
+clear_player_sink_input(void)
+{
+	player_has_sink_input = false;
+	player_sink_input = PA_INVALID_INDEX;
+	player_sink_input_channels = 0;
+}
+
+static void
+close_player_control(void)
+{
+	if (player_ctl_fd >= 0) {
+		close(player_ctl_fd);
+		player_ctl_fd = -1;
+	}
+}
+
+static void
+handle_player_control(const struct state *state)
+{
+	char buf[80];
+	ssize_t n = read(player_ctl_fd, buf, sizeof buf - 1);
+	if (n <= 0) {
+		close_player_control();
+		return;
+	}
+	buf[n] = '\0';
+
+	unsigned int channels;
+	uint32_t index;
+	if (sscanf(buf, "pulse-sink-input %u %u", &index, &channels) != 2) {
+		debug(0, "invalid player control message: %s", buf);
+		close_player_control();
+		return;
+	}
+
+	player_sink_input = index;
+	player_sink_input_channels = channels;
+	player_has_sink_input = true;
+	pulse_set_sink_input_volume(player_sink_input,
+	    player_sink_input_channels, state->volume);
+	close_player_control();
+}
 
 #ifdef MPRIS
 static void
@@ -203,17 +391,34 @@ cleanup_fds(struct fds *fds)
 static pid_t
 spawn_player(const struct song *song)
 {
+	int ctl[2];
+	if (pipe(ctl) == -1) {
+		debug(errno, "pipe");
+		return -1;
+	}
+
 	pid_t pid = fork();
 	if (pid == -1) {
 		debug(errno, "fork");
+		close(ctl[0]);
+		close(ctl[1]);
 		return -1;
 	}
 	if (pid == 0) {
 		char uid_str[21]; /* Enough for ULONG_MAX. */
+		char ctl_str[11]; /* Enough for INT_MAX. */
+		close(ctl[0]);
 		snprintf(uid_str, sizeof uid_str, "%lu", song->uid);
+		snprintf(ctl_str, sizeof ctl_str, "%d", ctl[1]);
+		setenv("MUSIC_CONTROL_FD", ctl_str, 1);
 		execl(PLAY_PATH, "play", song->path, uid_str, (char *) nullptr);
 		die(errno, "execl");
 	}
+
+	close(ctl[1]);
+	close_player_control();
+	clear_player_sink_input();
+	player_ctl_fd = ctl[0];
 	return pid;
 }
 
@@ -234,6 +439,8 @@ effect(const struct state old, const struct state new)
 		}
 		/* Reaping happens asynchronously in the SIGCHLD handler. */
 		player_pid = -1;
+		close_player_control();
+		clear_player_sink_input();
 	}
 
 	if (new.play == PLAYING
@@ -257,6 +464,11 @@ effect(const struct state old, const struct state new)
 			debug(errno, "kill");
 			return false;
 		}
+	}
+
+	if (old.volume != new.volume) {
+		if (player_pid != -1)
+			set_player_volume(new.volume);
 	}
 
 	return true;
@@ -395,8 +607,11 @@ main(int argc, char *argv[])
 	[[gnu::cleanup(cleanup_fds)]]
 	struct fds fds = { 0 };
 
-	if (argc < 2)
+	if (argc != 2)
 		die(0, "Usage: %s path", argv[0]);
+
+	if (!pulse_open(&pulse))
+		die(0, "Can't connect to Pulse");
 
 	if (!mkstate(&state))
 		die(0, "Can't make state");
@@ -440,6 +655,9 @@ main(int argc, char *argv[])
 #endif
 
 	player_pid = -1;
+	player_sink_input = PA_INVALID_INDEX;
+	fds.fds[FD_PLAYER].fd = -1;
+	fds.fds[FD_PLAYER].events = POLLIN;
 
 	while (state.mode != EXITING) {
 		/* Drain sd-bus before blocking so that any messages buffered
@@ -459,6 +677,8 @@ main(int argc, char *argv[])
 		if (mpris)
 			fds.fds[FD_MPRIS].events = mpris_events(mpris);
 #endif
+		fds.fds[FD_PLAYER].fd = player_ctl_fd;
+		fds.fds[FD_PLAYER].events = player_ctl_fd >= 0 ? POLLIN : 0;
 		fds.ready = poll(fds.fds, FD_END + fds.nclients, -1);
 		if (fds.ready == -1)
 			break;
@@ -482,6 +702,8 @@ main(int argc, char *argv[])
 				int wstatus;
 				if (waitpid(player_pid, &wstatus, WNOHANG) == player_pid) {
 					player_pid = -1;
+					close_player_control();
+					clear_player_sink_input();
 					if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus) != 0)
 						debug(0, "player exited with status %d",
 						      WEXITSTATUS(wstatus));
@@ -499,6 +721,9 @@ main(int argc, char *argv[])
 				}
 			}
 		}
+
+		if (player_ctl_fd >= 0 && fds.fds[FD_PLAYER].revents)
+			handle_player_control(&newstate);
 
 		/* Client commands. */
 		for (unsigned int i = 0; i < fds.nclients; ) {
@@ -553,4 +778,5 @@ main(int argc, char *argv[])
 			mpris_notify(mpris, prev, state);
 #endif
 	}
+	pulse_close(&pulse);
 }
